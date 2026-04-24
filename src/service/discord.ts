@@ -32,14 +32,33 @@ async function post(embed: Embed): Promise<boolean> {
 export interface PlacedBetDisplay {
   sport: string;
   matchup: string;
+  /** Team we're backing to win (from the model's pick). */
   pick: string;
+  /** Kalshi market ticker we actually entered (e.g. `KXMLBGAME-...-BOS`). */
   ticker: string;
+  /** YES or NO on that ticker. This is the *Kalshi side of the contract we
+   *  bought*, not a direction relative to the picked team. Buying NO on the
+   *  "-BOS" ticker (when we want BAL to win) has the same payout as buying
+   *  YES on the "-BAL" ticker. */
   side: 'yes' | 'no';
   priceCents: number;
   contracts: number;
   costBasisDollars: number;
   modelProb: number;
   mode: 'paper' | 'live';
+}
+
+/** Render one line for a placed bet, showing the backed team clearly and the
+ *  Kalshi contract mechanics as a separate, parenthetical technical note. */
+function formatPlacedLine(b: PlacedBetDisplay): string {
+  const dollars = `$${b.costBasisDollars.toFixed(2)}`;
+  const tickerTail = b.ticker.split('-').slice(-1)[0] ?? b.ticker;
+  const tech = `${b.side.toUpperCase()} @ -${tickerTail}`;
+  return (
+    `• **${b.sport}** ${b.matchup} → back **${b.pick}** to win ` +
+    `@ ${b.priceCents}¢ · ${b.contracts}×${dollars} · model ${(b.modelProb * 100).toFixed(1)}% ` +
+    `_(${tech})_`
+  );
 }
 
 export async function sendBetsPlacedSummary(
@@ -60,10 +79,7 @@ export async function sendBetsPlacedSummary(
     });
   }
 
-  const placedLines = placed.map((b) => {
-    const dollars = `$${b.costBasisDollars.toFixed(2)}`;
-    return `• **${b.sport}** ${b.matchup} → ${b.pick} @ ${b.priceCents}¢ · ${b.contracts}×${dollars} · model ${(b.modelProb * 100).toFixed(1)}%`;
-  }).join('\n');
+  const placedLines = placed.map(formatPlacedLine).join('\n');
 
   const totalDollars = placed.reduce((s, b) => s + b.costBasisDollars, 0);
   const fields: EmbedField[] = [];

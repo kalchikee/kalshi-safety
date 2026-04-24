@@ -300,7 +300,7 @@ export async function runBetAction(date: string): Promise<void> {
         if (!DRY_RUN) recordPaperBet(file.sport as DryRunSport, { ...req, contracts: execContracts });
         placed.push({
           sport: file.sport, matchup: `${pick.away} @ ${pick.home}`,
-          pick: `${pick.pickedTeam} ${resolved.side.toUpperCase()}`,
+          pick: pick.pickedTeam,
           ticker: resolved.ticker, side: resolved.side,
           priceCents: resolved.entryPriceCents, contracts: execContracts,
           costBasisDollars: costBasis, modelProb: pick.modelProb, mode: 'paper',
@@ -345,7 +345,7 @@ export async function runBetAction(date: string): Promise<void> {
         perSportDollars[file.sport] = (perSportDollars[file.sport] ?? 0) + costBasis;
         placed.push({
           sport: file.sport, matchup: `${pick.away} @ ${pick.home}`,
-          pick: `${pick.pickedTeam} ${resolved.side.toUpperCase()}`,
+          pick: pick.pickedTeam,
           ticker: resolved.ticker, side: resolved.side,
           priceCents: resolved.entryPriceCents, contracts: execContracts,
           costBasisDollars: costBasis, modelProb: pick.modelProb, mode: 'live',
@@ -458,7 +458,7 @@ export async function runBetAction(date: string): Promise<void> {
     if (decision.mode === 'paper') {
       if (!DRY_RUN) recordPaperBet(sport, { ...req, contracts: execContracts });
       _placed.push({
-        sport, matchup, pick: `${originalPick.pickedTeam} ${resolved.side.toUpperCase()}`,
+        sport, matchup, pick: originalPick.pickedTeam,
         ticker: resolved.ticker, side: resolved.side,
         priceCents: resolved.entryPriceCents, contracts: execContracts,
         costBasisDollars: costBasis, modelProb: resolved.modelProb, mode: 'paper',
@@ -489,7 +489,7 @@ export async function runBetAction(date: string): Promise<void> {
         betsPlaced++;
         perSportDollars[sport] = (perSportDollars[sport] ?? 0) + costBasis;
         _placed.push({
-          sport, matchup, pick: `${originalPick.pickedTeam} ${resolved.side.toUpperCase()}`,
+          sport, matchup, pick: originalPick.pickedTeam,
           ticker: resolved.ticker, side: resolved.side,
           priceCents: resolved.entryPriceCents, contracts: execContracts,
           costBasisDollars: costBasis, modelProb: resolved.modelProb, mode: 'live',
