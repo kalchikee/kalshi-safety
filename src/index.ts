@@ -18,8 +18,14 @@ export {
 export type { PaperBetRecord, PaperState, DailySummary } from './paperTradeGate.js';
 export {
   sendDailyDryRunSummary, sendAllDailyDryRunSummaries,
-  buildSummary, yesterdayUTC,
+  sendAggregateDailySummary, buildSummary, yesterdayUTC,
 } from './dailySummary.js';
+export {
+  checkStopLoss, triggerPaperStopLoss, scanForPaperStopLosses,
+} from './stopLoss.js';
+export type { StopLossCheckResult } from './stopLoss.js';
+export { DRY_RUN_SPORTS } from './allSports.js';
+export type { DryRunSport } from './allSports.js';
 export { reconcile, alertOnMismatch } from './reconciler.js';
 export { sendSafetyAlert } from './alerts.js';
 export { loadConfig, HARD_LIMITS } from './config.js';

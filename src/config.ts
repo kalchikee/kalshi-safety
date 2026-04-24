@@ -7,12 +7,14 @@ import type { SafetyConfig } from './types.js';
 // These are deliberately conservative. Raise them only after sustained paper
 // profitability and explicit user authorization.
 export const HARD_LIMITS = {
-  HARD_MAX_BET_DOLLARS: 25,
-  HARD_MAX_DAILY_EXPOSURE_DOLLARS: 100,
+  HARD_MAX_BET_DOLLARS: 10,                   // per-bet cap (was 25)
+  HARD_MAX_DAILY_EXPOSURE_DOLLARS: 75,         // daily new-bet exposure cap (was 100)
   HARD_MAX_OPEN_POSITIONS: 10,
   HARD_MAX_DAILY_LOSS_DOLLARS: 50,
   HARD_MIN_EDGE: 0.05,
   PAPER_TRADE_DAYS_REQUIRED: 30,
+  // Stop-loss: auto-exit any position that loses this fraction of its cost
+  HARD_STOP_LOSS_PCT: 0.20,
 } as const;
 
 function envNum(key: string, fallback: number): number {
@@ -31,7 +33,7 @@ export function loadConfig(): SafetyConfig {
     HARD_LIMITS.HARD_MAX_BET_DOLLARS,
   );
   const softMaxDaily = Math.min(
-    envNum('KALSHI_MAX_DAILY_EXPOSURE_DOLLARS', 50),
+    envNum('KALSHI_MAX_DAILY_EXPOSURE_DOLLARS', 75),
     HARD_LIMITS.HARD_MAX_DAILY_EXPOSURE_DOLLARS,
   );
   const softMaxPositions = Math.min(

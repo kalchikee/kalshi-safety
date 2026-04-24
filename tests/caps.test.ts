@@ -12,17 +12,17 @@ const baseReq: BetRequest = {
 };
 
 describe('applyBetSizeCap', () => {
-  it('caps contracts to per-bet dollar limit', () => {
+  it('caps contracts to per-bet dollar limit ($10 hard)', () => {
     const cfg = loadConfig();
     const r = applyBetSizeCap({ ...baseReq, priceCents: 50, contracts: 100 }, cfg);
-    // softMaxBetDollars default 10, @ $0.50 per contract → max 20
+    // softMaxBetDollars default 10, @ $0.50 per contract → max 20 contracts
     expect(r.allowedContracts).toBeLessThanOrEqual(20);
     expect(r.allowedContracts).toBeGreaterThan(0);
   });
 
-  it('rejects entirely when one contract > cap', () => {
+  it('caps to ~10 contracts at 99¢ price (hard $10 cap)', () => {
     const cfg = loadConfig();
-    // $0.99 price, cap $10 → 10 allowed
+    // $0.99 price, cap $10 → floor(10/0.99) = 10 allowed
     const r = applyBetSizeCap({ ...baseReq, priceCents: 99, contracts: 50 }, cfg);
     expect(r.allowedContracts).toBeLessThanOrEqual(10);
   });

@@ -14,13 +14,14 @@ can place a real bet MUST go through this module. No bypasses.
 
 ## Hard-limit constants (edit code to change, not env)
 
-| Constant | Default | Meaning |
-|----------|---------|---------|
-| `HARD_MAX_BET_DOLLARS` | 25 | Absolute max per single bet |
-| `HARD_MAX_DAILY_EXPOSURE_DOLLARS` | 100 | Max new-bet dollars per day |
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `HARD_MAX_BET_DOLLARS` | **$10** | Absolute max per single bet |
+| `HARD_MAX_DAILY_EXPOSURE_DOLLARS` | **$75** | Max new-bet dollars per day |
 | `HARD_MAX_OPEN_POSITIONS` | 10 | Max concurrent open positions |
-| `HARD_MAX_DAILY_LOSS_DOLLARS` | 50 | Halt new bets after this much daily realized loss |
+| `HARD_MAX_DAILY_LOSS_DOLLARS` | $50 | Halt new bets after this much daily realized loss |
 | `HARD_MIN_EDGE` | 0.05 | 5% required edge over market |
+| `HARD_STOP_LOSS_PCT` | **0.20** | Auto-exit any position at 20% loss |
 | `PAPER_TRADE_DAYS_REQUIRED` | 30 | Days of paper before live allowed |
 
 Soft limits (env-configurable, clamped by hard limits above):
