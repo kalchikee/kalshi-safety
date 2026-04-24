@@ -1,0 +1,59 @@
+name: Place Bets (6:30 AM ET)
+
+on:
+  schedule:
+    - cron: '30 10 * * *'   # 10:30 UTC = 6:30 AM ET (EDT, Mar–Nov)
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date override (YYYY-MM-DD, ET)'
+        required: false
+
+jobs:
+  bet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Get today's date (ET)
+        id: date
+        run: echo "date=$(TZ='America/New_York' date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore safety-state (paper + live bet records)
+        uses: actions/cache/restore@v4
+        with:
+          path: safety-state
+          key: kalshi-safety-state-${{ steps.date.outputs.date }}
+          restore-keys: |
+            kalshi-safety-state-
+
+      - name: Run bet action
+        env:
+          KALSHI_API_KEY_ID: ${{ secrets.KALSHI_API_KEY_ID }}
+          KALSHI_PRIVATE_KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
+          KALSHI_SAFETY_DISCORD_URL: ${{ secrets.KALSHI_SAFETY_DISCORD_URL }}
+          KALSHI_PAPER_TRADING: 'true'
+          KALSHI_MIN_PROB: '0.65'
+          KALSHI_MAX_BET_DOLLARS: '10'
+          KALSHI_BET_SIZE: '1'
+          KALSHI_MIN_BALANCE: '5'
+        run: node --loader ts-node/esm src/service/actions/bet.ts ${{ github.event.inputs.date || steps.date.outputs.date }}
+
+      - name: Save safety-state
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: safety-state
+          key: kalshi-safety-state-${{ steps.date.outputs.date }}-bet-${{ github.run_id }}

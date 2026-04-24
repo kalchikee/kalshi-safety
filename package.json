@@ -1,7 +1,7 @@
 {
   "name": "kalshi-safety",
-  "version": "1.2.0",
-  "description": "Shared safety rails for all Kalshi prediction engines. Hard caps, kill switch, paper-trade gate, position reconciliation, Discord alerts. No bet is placed without passing through this module.",
+  "version": "2.0.0",
+  "description": "Central Kalshi betting service. Fetches predictions from sport repos, places + monitors bets, owns stop-loss and recap. Library entry (checkBet/recordPaperBet) retained for external callers.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -25,10 +25,12 @@
     "README.md"
   ],
   "dependencies": {
+    "dotenv": "^16.4.5",
     "node-fetch": "^3.3.2"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",
+    "ts-node": "^10.9.2",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"
   }

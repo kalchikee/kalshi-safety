@@ -1,0 +1,68 @@
+name: Position Monitor (1 PM – 11 PM ET, two shifts)
+
+# Splits into two 5-hour shifts to stay under GitHub Actions' 6h job limit:
+#   - Afternoon: 1 PM ET (17 UTC) → 6 PM ET (22 UTC)  — MONITOR_EXIT_HOUR=18
+#   - Evening:   6 PM ET (22 UTC) → 11 PM ET (03 UTC) — MONITOR_EXIT_HOUR=23
+on:
+  schedule:
+    - cron: '0 17 * * *'   # 17 UTC = 1 PM ET — afternoon shift
+    - cron: '0 22 * * *'   # 22 UTC = 6 PM ET — evening shift
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330    # 5.5h
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Get today's date (ET)
+        id: date
+        run: echo "date=$(TZ='America/New_York' date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore safety-state (paper + live bets)
+        uses: actions/cache/restore@v4
+        with:
+          path: safety-state
+          key: kalshi-safety-state-${{ steps.date.outputs.date }}
+          restore-keys: |
+            kalshi-safety-state-
+
+      - name: Compute shift exit hour
+        id: shift
+        run: |
+          H=$(TZ='America/New_York' date +%H)
+          if [ "$H" -lt "18" ]; then
+            echo "exit_hour=18" >> $GITHUB_OUTPUT
+          else
+            echo "exit_hour=23" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run position monitor
+        env:
+          KALSHI_API_KEY_ID: ${{ secrets.KALSHI_API_KEY_ID }}
+          KALSHI_PRIVATE_KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
+          KALSHI_SAFETY_DISCORD_URL: ${{ secrets.KALSHI_SAFETY_DISCORD_URL }}
+          KALSHI_PAPER_TRADING: 'true'
+          KALSHI_MIN_BALANCE: '5'
+          KALSHI_MONITOR_INTERVAL_MS: '120000'
+          MONITOR_EXIT_HOUR: ${{ steps.shift.outputs.exit_hour }}
+        run: node --loader ts-node/esm src/service/actions/monitor.ts
+
+      - name: Save safety-state
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: safety-state
+          key: kalshi-safety-state-${{ steps.date.outputs.date }}-monitor-${{ github.run_id }}
