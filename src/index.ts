@@ -10,7 +10,16 @@ import { reconcile, alertOnMismatch } from './reconciler.js';
 import { sendSafetyAlert } from './alerts.js';
 
 export { isKillSwitchActive } from './killSwitch.js';
-export { loadPaperState, recordPaperBet, isLiveEligible, activateLive } from './paperTradeGate.js';
+export {
+  loadPaperState, recordPaperBet, settlePaperBet,
+  isLiveEligible, activateLive,
+  getDailySummary, getDryRunDuration, getBetsSettledOnDate,
+} from './paperTradeGate.js';
+export type { PaperBetRecord, PaperState, DailySummary } from './paperTradeGate.js';
+export {
+  sendDailyDryRunSummary, sendAllDailyDryRunSummaries,
+  buildSummary, yesterdayUTC,
+} from './dailySummary.js';
 export { reconcile, alertOnMismatch } from './reconciler.js';
 export { sendSafetyAlert } from './alerts.js';
 export { loadConfig, HARD_LIMITS } from './config.js';

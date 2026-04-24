@@ -30,7 +30,7 @@ export async function sendSafetyAlert(alert: SafetyAlert): Promise<boolean> {
       description: alert.description,
       color: alert.color ?? DEFAULT_COLOR,
       fields: alert.fields,
-      footer: { text: `kalshi-safety · ${alert.sport ?? 'system'}` },
+      footer: { text: `Kalshi Safety · ${alert.sport ?? 'system'}` },
       timestamp: new Date().toISOString(),
     }],
   };

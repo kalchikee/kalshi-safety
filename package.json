@@ -1,6 +1,6 @@
 {
   "name": "kalshi-safety",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Shared safety rails for all Kalshi prediction engines. Hard caps, kill switch, paper-trade gate, position reconciliation, Discord alerts. No bet is placed without passing through this module.",
   "type": "module",
   "main": "dist/index.js",
