@@ -1,0 +1,29 @@
+{
+  "name": "kalshi-safety",
+  "version": "1.0.0",
+  "description": "Shared safety rails for all Kalshi prediction engines. Hard caps, kill switch, paper-trade gate, position reconciliation, Discord alerts. No bet is placed without passing through this module.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit && echo 'Lint pass: tsc clean'"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+*.log
+safety-state/test-*
+safety-state/paper-*.json
+!safety-state/.gitkeep
