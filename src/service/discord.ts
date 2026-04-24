@@ -50,10 +50,10 @@ export async function sendBetsPlacedSummary(
 ): Promise<boolean> {
   if (placed.length === 0 && skipped.length === 0) {
     return post({
-      title: `Kalshi Safety · No bets today (${date})`,
+      title: `Kalshi Picks · No bets today (${date})`,
       description: 'No predictions cleared the safety filters.',
       color: 0x95a5a6,
-      footer: { text: `Kalshi Safety · ${mode.toUpperCase()}` },
+      footer: { text: `Kalshi Picks · ${mode.toUpperCase()}` },
       timestamp: new Date().toISOString(),
     });
   }
@@ -80,13 +80,13 @@ export async function sendBetsPlacedSummary(
   }
 
   return post({
-    title: `Kalshi Safety · Bets placed — ${date}`,
+    title: `Kalshi Picks · Bets placed — ${date}`,
     description: mode === 'paper'
       ? '🧪 Paper trading — no real money at risk.'
       : '💰 Live trading.',
     color: placed.length > 0 ? 0x2ecc71 : 0x95a5a6,
     fields,
-    footer: { text: `Kalshi Safety · ${mode.toUpperCase()}` },
+    footer: { text: `Kalshi Picks · ${mode.toUpperCase()}` },
     timestamp: new Date().toISOString(),
   });
 }
@@ -112,7 +112,7 @@ export async function sendStopLossAlert(ev: StopLossDisplay, mode: 'paper' | 'li
       { name: 'Entry → Now', value: `${ev.entryPriceCents}¢ → ${ev.currentPriceCents}¢`, inline: true },
       { name: 'P&L', value: `$${ev.pnlDollars.toFixed(2)}`, inline: true },
     ],
-    footer: { text: `Kalshi Safety · ${mode.toUpperCase()}` },
+    footer: { text: `Kalshi Picks · ${mode.toUpperCase()}` },
     timestamp: new Date().toISOString(),
   });
 }
@@ -141,7 +141,7 @@ export async function sendRecap(
   }).join('\n');
 
   return post({
-    title: `Kalshi Safety · Recap — ${date}`,
+    title: `Kalshi Picks · Recap — ${date}`,
     description: bets.length === 0 ? 'No bets placed.' : undefined,
     color: totalPnl > 0 ? 0x27ae60 : totalPnl < 0 ? 0xe74c3c : 0x95a5a6,
     fields: [
@@ -149,7 +149,7 @@ export async function sendRecap(
       { name: 'Net P&L', value: `$${totalPnl.toFixed(2)}`, inline: true },
       ...(bets.length > 0 ? [{ name: 'Bets', value: lines.slice(0, 1000) }] : []),
     ],
-    footer: { text: `Kalshi Safety · ${mode.toUpperCase()}` },
+    footer: { text: `Kalshi Picks · ${mode.toUpperCase()}` },
     timestamp: new Date().toISOString(),
   });
 }

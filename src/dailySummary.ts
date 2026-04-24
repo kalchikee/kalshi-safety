@@ -65,7 +65,7 @@ export async function sendDailyDryRunSummary(
   ];
 
   return sendSafetyAlert({
-    title: `Kalshi Safety daily summary — ${sport} — ${date}`,
+    title: `Kalshi Picks daily summary — ${sport} — ${date}`,
     description: `${modeLine}\n\nAll bets shown below are **paper / dry-run**. No real money is at risk until the 30-day paper period completes and live mode is explicitly activated.`,
     color: pnlColor,
     fields,
@@ -113,7 +113,7 @@ export async function sendAggregateDailySummary(
 
   if (perSport.length === 0) {
     return sendSafetyAlert({
-      title: `Kalshi Safety aggregate — ${date}`,
+      title: `Kalshi Picks aggregate — ${date}`,
       description: '🧪 Dry run in progress. No sports have placed paper bets yet.',
       color: 0x95A5A6,
       sport: 'aggregate',
@@ -133,7 +133,7 @@ export async function sendAggregateDailySummary(
     });
 
   return sendSafetyAlert({
-    title: `Kalshi Safety — all sports dry-run summary — ${date}`,
+    title: `Kalshi Picks — all sports dry-run summary — ${date}`,
     description: `🧪 **Paper / dry-run mode** — no real money at risk.\n\nCombined results across ${perSport.length} active sport(s).`,
     color,
     fields: [
