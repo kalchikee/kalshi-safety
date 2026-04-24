@@ -47,13 +47,15 @@ export async function sendBetsPlacedSummary(
   placed: PlacedBetDisplay[],
   skipped: Array<{ sport: string; matchup: string; reason: string }>,
   mode: 'paper' | 'live',
+  dryRun: boolean = false,
 ): Promise<boolean> {
+  const modeSuffix = dryRun ? 'DRY RUN' : mode.toUpperCase();
   if (placed.length === 0 && skipped.length === 0) {
     return post({
-      title: `Kalshi Picks · No bets today (${date})`,
+      title: `Kalshi Picks · No bets today (${date})${dryRun ? ' · PREVIEW' : ''}`,
       description: 'No predictions cleared the safety filters.',
       color: 0x95a5a6,
-      footer: { text: `Kalshi Picks · ${mode.toUpperCase()}` },
+      footer: { text: `Kalshi Picks · ${modeSuffix}` },
       timestamp: new Date().toISOString(),
     });
   }
@@ -80,13 +82,15 @@ export async function sendBetsPlacedSummary(
   }
 
   return post({
-    title: `Kalshi Picks · Bets placed — ${date}`,
-    description: mode === 'paper'
-      ? '🧪 Paper trading — no real money at risk.'
-      : '💰 Live trading.',
-    color: placed.length > 0 ? 0x2ecc71 : 0x95a5a6,
+    title: `Kalshi Picks · ${dryRun ? 'Preview (NOT RECORDED)' : 'Bets placed'} — ${date}`,
+    description: dryRun
+      ? '👓 Dry-run preview — showing what would be bet with current logic. No paper state was mutated.'
+      : mode === 'paper'
+        ? '🧪 Paper trading — no real money at risk.'
+        : '💰 Live trading.',
+    color: dryRun ? 0x3498db : placed.length > 0 ? 0x2ecc71 : 0x95a5a6,
     fields,
-    footer: { text: `Kalshi Picks · ${mode.toUpperCase()}` },
+    footer: { text: `Kalshi Picks · ${modeSuffix}` },
     timestamp: new Date().toISOString(),
   });
 }

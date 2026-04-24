@@ -8,6 +8,11 @@ on:
       date:
         description: 'Date override (YYYY-MM-DD, ET)'
         required: false
+      dry_run:
+        description: 'Preview bets without mutating paper state'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   bet:
@@ -49,11 +54,13 @@ jobs:
           KALSHI_MAX_BET_DOLLARS: '10'
           KALSHI_BET_SIZE: '1'
           KALSHI_MIN_BALANCE: '5'
+          BET_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: node --loader ts-node/esm src/service/actions/bet.ts ${{ github.event.inputs.date || steps.date.outputs.date }}
 
       - name: Save safety-state
         uses: actions/cache/save@v4
-        if: always()
+        # Dry-run should be fully side-effect-free — skip the cache save too
+        if: always() && github.event.inputs.dry_run != 'true'
         with:
           path: safety-state
           key: kalshi-safety-state-${{ steps.date.outputs.date }}-bet-${{ github.run_id }}

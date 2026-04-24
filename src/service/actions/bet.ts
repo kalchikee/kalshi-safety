@@ -34,6 +34,10 @@ const DEFAULT_MIN_PROB = parseFloat(process.env.KALSHI_MIN_PROB ?? '0.65');
 const MAX_BET_DOLLARS  = parseFloat(process.env.KALSHI_MAX_BET_DOLLARS ?? '10');
 // Paper bankroll for Kelly sizing when no live balance is available
 const PAPER_BANKROLL   = parseFloat(process.env.KALSHI_PAPER_BANKROLL ?? '100');
+// Dry-run mode: runs every check, posts the Discord summary, but DOES NOT
+// mutate paper state (no recordPaperBet / no recordLiveBet / no placeOrder).
+// Use to preview "what would Kalshi Picks bet on" without committing bets.
+const DRY_RUN = process.env.BET_DRY_RUN === 'true';
 
 function log(level: 'info' | 'warn' | 'error', msg: string, extra: Record<string, unknown> = {}): void {
   const line = JSON.stringify({ level, msg, ...extra, ts: new Date().toISOString() });
@@ -45,7 +49,7 @@ export async function runBetAction(date: string): Promise<void> {
   // Live requires BOTH env opt-in and live-activation.json committed in repo.
   const requestLive = isLiveAllowed();
   const mode: 'paper' | 'live' = requestLive ? 'live' : 'paper';
-  log('info', 'bet action starting', { date, mode, requestLive });
+  log('info', 'bet action starting', { date, mode, requestLive, dryRun: DRY_RUN });
 
   // ── Live-only: hard-stop before fetching predictions if balance too low ──
   if (requestLive) {
@@ -293,7 +297,7 @@ export async function runBetAction(date: string): Promise<void> {
       const costBasis = (execContracts * resolved.entryPriceCents) / 100;
 
       if (decision.mode === 'paper') {
-        recordPaperBet(file.sport as DryRunSport, { ...req, contracts: execContracts });
+        if (!DRY_RUN) recordPaperBet(file.sport as DryRunSport, { ...req, contracts: execContracts });
         placed.push({
           sport: file.sport, matchup: `${pick.away} @ ${pick.home}`,
           pick: `${pick.pickedTeam} ${resolved.side.toUpperCase()}`,
@@ -304,24 +308,30 @@ export async function runBetAction(date: string): Promise<void> {
         todayDollars += costBasis;
         betsPlaced++;
         perSportDollars[file.sport] = (perSportDollars[file.sport] ?? 0) + costBasis;
-        log('info', 'paper bet recorded', { sport: file.sport, ticker: resolved.ticker, contracts: execContracts });
+        log('info', DRY_RUN ? 'paper bet (DRY RUN — not recorded)' : 'paper bet recorded', {
+          sport: file.sport, ticker: resolved.ticker, contracts: execContracts,
+        });
         continue;
       }
 
       // LIVE path
       try {
-        const order = await placeOrder(resolved.ticker, resolved.side, resolved.entryPriceCents, execContracts);
-        recordLiveBet({
-          sport: file.sport as DryRunSport,
-          ticker: resolved.ticker,
-          side: resolved.side,
-          priceCents: resolved.entryPriceCents,
-          contracts: execContracts,
-          costBasisDollars: costBasis,
-          modelProb: pick.modelProb,
-          orderId: order.order_id,
-          placedAt: new Date().toISOString(),
-        });
+        const order = DRY_RUN
+          ? { order_id: `dryrun-${Date.now()}` }
+          : await placeOrder(resolved.ticker, resolved.side, resolved.entryPriceCents, execContracts);
+        if (!DRY_RUN) {
+          recordLiveBet({
+            sport: file.sport as DryRunSport,
+            ticker: resolved.ticker,
+            side: resolved.side,
+            priceCents: resolved.entryPriceCents,
+            contracts: execContracts,
+            costBasisDollars: costBasis,
+            modelProb: pick.modelProb,
+            orderId: order.order_id,
+            placedAt: new Date().toISOString(),
+          });
+        }
         openPositions.push({
           sport: file.sport as DryRunSport,
           ticker: resolved.ticker,
@@ -340,7 +350,9 @@ export async function runBetAction(date: string): Promise<void> {
           priceCents: resolved.entryPriceCents, contracts: execContracts,
           costBasisDollars: costBasis, modelProb: pick.modelProb, mode: 'live',
         });
-        log('info', 'live bet placed', { sport: file.sport, ticker: resolved.ticker, orderId: order.order_id });
+        log('info', DRY_RUN ? 'live bet (DRY RUN — not placed)' : 'live bet placed', {
+          sport: file.sport, ticker: resolved.ticker, orderId: order.order_id,
+        });
       } catch (err) {
         skipped.push({
           sport: file.sport, matchup: `${pick.away} @ ${pick.home}`,
@@ -351,7 +363,7 @@ export async function runBetAction(date: string): Promise<void> {
     }
   }
 
-  await sendBetsPlacedSummary(date, placed, skipped, mode);
+  await sendBetsPlacedSummary(date, placed, skipped, mode, DRY_RUN);
   log('info', 'bet action complete', {
     placed: placed.length,
     skipped: skipped.length,
@@ -444,7 +456,7 @@ export async function runBetAction(date: string): Promise<void> {
     const costBasis = (execContracts * resolved.entryPriceCents) / 100;
 
     if (decision.mode === 'paper') {
-      recordPaperBet(sport, { ...req, contracts: execContracts });
+      if (!DRY_RUN) recordPaperBet(sport, { ...req, contracts: execContracts });
       _placed.push({
         sport, matchup, pick: `${originalPick.pickedTeam} ${resolved.side.toUpperCase()}`,
         ticker: resolved.ticker, side: resolved.side,
@@ -454,16 +466,20 @@ export async function runBetAction(date: string): Promise<void> {
       setTodayDollars(getTodayDollars() + costBasis);
       betsPlaced++;
       perSportDollars[sport] = (perSportDollars[sport] ?? 0) + costBasis;
-      log('info', 'parlay leg paper bet recorded', { sport, ticker: resolved.ticker });
+      log('info', DRY_RUN ? 'parlay leg paper bet (DRY RUN)' : 'parlay leg paper bet recorded', { sport, ticker: resolved.ticker });
     } else {
       try {
-        const order = await placeOrder(resolved.ticker, resolved.side, resolved.entryPriceCents, execContracts);
-        recordLiveBet({
-          sport, ticker: resolved.ticker, side: resolved.side,
-          priceCents: resolved.entryPriceCents, contracts: execContracts,
-          costBasisDollars: costBasis, modelProb: resolved.modelProb,
-          orderId: order.order_id, placedAt: new Date().toISOString(),
-        });
+        const order = DRY_RUN
+          ? { order_id: `dryrun-${Date.now()}` }
+          : await placeOrder(resolved.ticker, resolved.side, resolved.entryPriceCents, execContracts);
+        if (!DRY_RUN) {
+          recordLiveBet({
+            sport, ticker: resolved.ticker, side: resolved.side,
+            priceCents: resolved.entryPriceCents, contracts: execContracts,
+            costBasisDollars: costBasis, modelProb: resolved.modelProb,
+            orderId: order.order_id, placedAt: new Date().toISOString(),
+          });
+        }
         _openPositions.push({
           sport, ticker: resolved.ticker, contracts: execContracts,
           entryPriceCents: resolved.entryPriceCents,
