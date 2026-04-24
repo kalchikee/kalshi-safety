@@ -49,6 +49,14 @@ export const mlbResolver: SportResolver = {
     const h = k(pick.home);
     const a = k(pick.away);
 
+    // Kalshi lists each game as TWO twin tickers — one for each team winning.
+    // We collect every candidate market that matches this game + team pair,
+    // compute the cost to back the picked team from each, and return the
+    // CHEAPEST one. This makes the resolver deterministic (insertion-order-
+    // independent) and guarantees we always pay the lower of the twin-ask
+    // prices for the same economic outcome.
+    const candidates: ResolvedBet[] = [];
+
     for (const [ticker, market] of markets) {
       const up = ticker.toUpperCase();
       if (!(up.includes(h) || up.includes(a))) continue;
@@ -61,17 +69,26 @@ export const mlbResolver: SportResolver = {
         (k(pick.pickedTeam) === k(yesTeam));
       const side: 'yes' | 'no' = pickedIsYes ? 'yes' : 'no';
       const entry = side === 'yes' ? market.yes_ask : market.no_ask;
-      if (!entry || entry <= 0) continue;
+      if (!entry || entry <= 0 || entry >= 100) continue;
 
-      return {
-        ticker,
-        market,
-        side,
+      candidates.push({
+        ticker, market, side,
         entryPriceCents: entry,
         modelProb: pick.modelProb,
         pick,
-      };
+      });
     }
-    return null;
+
+    if (candidates.length === 0) return null;
+    // Pick the cheapest way to back the same team. If prices tie, prefer the
+    // ticker whose name ends in the picked team's code (so the ticker's
+    // "natural" side matches our bet — easier to audit).
+    candidates.sort((x, y) => {
+      if (x.entryPriceCents !== y.entryPriceCents) return x.entryPriceCents - y.entryPriceCents;
+      const xMatch = x.ticker.toUpperCase().endsWith(`-${k(pick.pickedTeam)}`) ? 0 : 1;
+      const yMatch = y.ticker.toUpperCase().endsWith(`-${k(pick.pickedTeam)}`) ? 0 : 1;
+      return xMatch - yMatch;
+    });
+    return candidates[0]!;
   },
 };

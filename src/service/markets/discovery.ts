@@ -52,6 +52,7 @@ export function makeLenientResolver(sport: string, normalizeTeam?: (t: string) =
   function resolve(pick: Pick, markets: Map<string, KalshiMarket>): ResolvedBet | null {
     const h = norm(pick.home);
     const a = norm(pick.away);
+    const candidates: ResolvedBet[] = [];
 
     for (const [ticker, market] of markets) {
       const up = ticker.toUpperCase();
@@ -84,14 +85,24 @@ export function makeLenientResolver(sport: string, normalizeTeam?: (t: string) =
       const entry = side === 'yes' ? market.yes_ask : market.no_ask;
       if (!entry || entry <= 0 || entry >= 100) continue;
 
-      return {
+      candidates.push({
         ticker, market, side,
         entryPriceCents: entry,
         modelProb: pick.modelProb,
         pick,
-      };
+      });
     }
-    return null;
+
+    if (candidates.length === 0) return null;
+    // Same twin-ticker tiebreak as MLB: cheapest entry wins; tie → prefer
+    // the ticker that naturally names our picked team.
+    candidates.sort((x, y) => {
+      if (x.entryPriceCents !== y.entryPriceCents) return x.entryPriceCents - y.entryPriceCents;
+      const xMatch = x.ticker.toUpperCase().endsWith(`-${norm(pick.pickedTeam)}`) ? 0 : 1;
+      const yMatch = y.ticker.toUpperCase().endsWith(`-${norm(pick.pickedTeam)}`) ? 0 : 1;
+      return xMatch - yMatch;
+    });
+    return candidates[0]!;
   }
 
   return {
