@@ -16,14 +16,18 @@ import { fetchAllPredictions } from '../predictions.js';
 import { getResolver, supportedSports } from '../markets/registry.js';
 import { resolveParlayLegs } from '../markets/parlay.js';
 import type { ResolvedBet } from '../markets/types.js';
-import { placeOrder, PAPER_TRADING, MIN_BALANCE_DOLLARS } from '../kalshiApi.js';
+import { placeOrder, MIN_BALANCE_DOLLARS } from '../kalshiApi.js';
 import { checkAccountBalance } from '../balanceCheck.js';
 import { recordLiveBet, getOpenLiveBets } from '../liveBets.js';
 import { sendBetsPlacedSummary, type PlacedBetDisplay } from '../discord.js';
 import { sendSafetyAlert } from '../../alerts.js';
-import { checkGameExposure, checkLineAgreement, kellyContracts } from '../../caps.js';
+import {
+  checkGameExposure, checkLineAgreement, kellyContracts,
+  checkPerSportDaily, checkDailyBetCount, checkLiquidity,
+} from '../../caps.js';
 import { loadConfig } from '../../config.js';
 import { getPerSportFloor } from '../../calibration.js';
+import { isLiveAllowed } from '../../liveActivation.js';
 
 const BET_SIZE_DOLLARS = parseFloat(process.env.KALSHI_BET_SIZE ?? '1');
 const DEFAULT_MIN_PROB = parseFloat(process.env.KALSHI_MIN_PROB ?? '0.65');
@@ -38,11 +42,13 @@ function log(level: 'info' | 'warn' | 'error', msg: string, extra: Record<string
 }
 
 export async function runBetAction(date: string): Promise<void> {
-  const mode: 'paper' | 'live' = PAPER_TRADING ? 'paper' : 'live';
-  log('info', 'bet action starting', { date, mode });
+  // Live requires BOTH env opt-in and live-activation.json committed in repo.
+  const requestLive = isLiveAllowed();
+  const mode: 'paper' | 'live' = requestLive ? 'live' : 'paper';
+  log('info', 'bet action starting', { date, mode, requestLive });
 
   // ── Live-only: hard-stop before fetching predictions if balance too low ──
-  if (!PAPER_TRADING) {
+  if (requestLive) {
     const bal = await checkAccountBalance();
     if (!bal.ok) {
       log('warn', 'balance check failed — halting bets', {
@@ -69,6 +75,8 @@ export async function runBetAction(date: string): Promise<void> {
 
   // Running totals for checkBet() context
   let todayDollars = 0;
+  let betsPlaced = 0;
+  const perSportDollars: Record<string, number> = {};
   const openPositions: Position[] = getOpenLiveBets().map((b) => ({
     sport: b.sport,
     ticker: b.ticker,
@@ -168,6 +176,35 @@ export async function runBetAction(date: string): Promise<void> {
         continue;
       }
 
+      const cfg = loadConfig();
+
+      // Daily bet-count cap (before all other checks — even the best bet skipped
+      // once we hit the max-bets-per-day ceiling)
+      const countCheck = checkDailyBetCount(betsPlaced, cfg);
+      if (!countCheck.allowed) {
+        skipped.push({
+          sport: file.sport,
+          matchup: `${pick.away} @ ${pick.home}`,
+          reason: countCheck.reason,
+        });
+        continue;
+      }
+
+      // Liquidity guard: spread too wide or volume zero → skip
+      const liq = checkLiquidity(
+        resolved.market.yes_bid, resolved.market.yes_ask,
+        resolved.market.no_bid,  resolved.market.no_ask,
+        resolved.side, resolved.market.volume, cfg,
+      );
+      if (!liq.allowed) {
+        skipped.push({
+          sport: file.sport,
+          matchup: `${pick.away} @ ${pick.home}`,
+          reason: liq.reason,
+        });
+        continue;
+      }
+
       // Pre-bet line-move check — if the Kalshi ask already reflects the model's
       // view, the edge is gone. Skip rather than bet into a priced-in market.
       const draftReq: BetRequest = {
@@ -215,7 +252,6 @@ export async function runBetAction(date: string): Promise<void> {
       };
 
       // Correlated-position guard: cap per-gameId exposure
-      const cfg = loadConfig();
       const gameExp = checkGameExposure(req, pick.gameId, openPositions, cfg);
       if (!gameExp.allowed) {
         skipped.push({
@@ -226,11 +262,22 @@ export async function runBetAction(date: string): Promise<void> {
         continue;
       }
 
+      // Per-sport daily exposure cap: diversify across sports
+      const sportDaily = checkPerSportDaily(req, perSportDollars[file.sport] ?? 0, cfg);
+      if (!sportDaily.allowed) {
+        skipped.push({
+          sport: file.sport,
+          matchup: `${pick.away} @ ${pick.home}`,
+          reason: sportDaily.reason,
+        });
+        continue;
+      }
+
       const decision = await checkBet(req, {
         todayDollarsPlaced: todayDollars,
         openPositions,
         todayRealizedLoss: 0,
-        requestLive: !PAPER_TRADING,
+        requestLive,
       });
 
       if (!decision.allowed) {
@@ -255,6 +302,8 @@ export async function runBetAction(date: string): Promise<void> {
           costBasisDollars: costBasis, modelProb: pick.modelProb, mode: 'paper',
         });
         todayDollars += costBasis;
+        betsPlaced++;
+        perSportDollars[file.sport] = (perSportDollars[file.sport] ?? 0) + costBasis;
         log('info', 'paper bet recorded', { sport: file.sport, ticker: resolved.ticker, contracts: execContracts });
         continue;
       }
@@ -282,6 +331,8 @@ export async function runBetAction(date: string): Promise<void> {
           currentValueDollars: costBasis,
         });
         todayDollars += costBasis;
+        betsPlaced++;
+        perSportDollars[file.sport] = (perSportDollars[file.sport] ?? 0) + costBasis;
         placed.push({
           sport: file.sport, matchup: `${pick.away} @ ${pick.home}`,
           pick: `${pick.pickedTeam} ${resolved.side.toUpperCase()}`,
@@ -322,6 +373,31 @@ export async function runBetAction(date: string): Promise<void> {
     const matchup = `${originalPick.away} @ ${originalPick.home}`;
     const cfg = loadConfig();
 
+    // Same gates as the main pick loop — parlay legs are bets too
+    const countCheck = checkDailyBetCount(betsPlaced, cfg);
+    if (!countCheck.allowed) {
+      _skipped.push({ sport, matchup, reason: countCheck.reason });
+      return;
+    }
+    const liq = checkLiquidity(
+      resolved.market.yes_bid, resolved.market.yes_ask,
+      resolved.market.no_bid,  resolved.market.no_ask,
+      resolved.side, resolved.market.volume, cfg,
+    );
+    if (!liq.allowed) {
+      _skipped.push({ sport, matchup, reason: liq.reason });
+      return;
+    }
+    const lineCheck = checkLineAgreement({
+      sport, ticker: resolved.ticker, side: resolved.side,
+      priceCents: resolved.entryPriceCents, contracts: 1,
+      modelProb: resolved.modelProb,
+    });
+    if (!lineCheck.allowed) {
+      _skipped.push({ sport, matchup, reason: lineCheck.reason });
+      return;
+    }
+
     const contracts = kellyContracts(
       resolved.entryPriceCents,
       resolved.modelProb,
@@ -347,11 +423,17 @@ export async function runBetAction(date: string): Promise<void> {
       return;
     }
 
+    const sportDaily = checkPerSportDaily(req, perSportDollars[sport] ?? 0, cfg);
+    if (!sportDaily.allowed) {
+      _skipped.push({ sport, matchup, reason: sportDaily.reason });
+      return;
+    }
+
     const decision = await checkBet(req, {
       todayDollarsPlaced: getTodayDollars(),
       openPositions: _openPositions,
       todayRealizedLoss: 0,
-      requestLive: !PAPER_TRADING,
+      requestLive,
     });
     if (!decision.allowed) {
       _skipped.push({ sport, matchup, reason: decision.reason ?? 'blocked by safety' });
@@ -370,6 +452,8 @@ export async function runBetAction(date: string): Promise<void> {
         costBasisDollars: costBasis, modelProb: resolved.modelProb, mode: 'paper',
       });
       setTodayDollars(getTodayDollars() + costBasis);
+      betsPlaced++;
+      perSportDollars[sport] = (perSportDollars[sport] ?? 0) + costBasis;
       log('info', 'parlay leg paper bet recorded', { sport, ticker: resolved.ticker });
     } else {
       try {
@@ -386,6 +470,8 @@ export async function runBetAction(date: string): Promise<void> {
           costBasisDollars: costBasis, currentValueDollars: costBasis,
         });
         setTodayDollars(getTodayDollars() + costBasis);
+        betsPlaced++;
+        perSportDollars[sport] = (perSportDollars[sport] ?? 0) + costBasis;
         _placed.push({
           sport, matchup, pick: `${originalPick.pickedTeam} ${resolved.side.toUpperCase()}`,
           ticker: resolved.ticker, side: resolved.side,

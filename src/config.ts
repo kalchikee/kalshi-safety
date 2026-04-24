@@ -21,6 +21,18 @@ export const HARD_LIMITS = {
   // Per-game correlated-exposure cap: don't stack more than this many dollars
   // across positions tied to the same underlying gameId.
   HARD_MAX_PER_GAME_DOLLARS: 15,
+  // Per-sport daily-exposure cap: prevents putting the whole day's budget on
+  // one sport. Anti-concentration rule.
+  HARD_MAX_PER_SPORT_DAILY_DOLLARS: 30,
+  // Per-day bet-count cap: even if per-dollar caps allow more, cap the number
+  // of total bets per day to avoid over-trading on noisy days.
+  HARD_MAX_BETS_PER_DAY: 15,
+  // Max spread (ask-bid) as a fraction of the ask. Wide spreads signal thin
+  // liquidity — we pay too much on entry and too little on exit.
+  HARD_MAX_SPREAD_PCT: 0.15,
+  // Drawdown threshold (as a fraction of peak equity). Triggers Discord alert
+  // when cumulative paper P&L drops below (peak × (1 - drawdown)).
+  HARD_DRAWDOWN_ALERT_PCT: 0.10,
 } as const;
 
 function envNum(key: string, fallback: number): number {

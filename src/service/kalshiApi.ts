@@ -3,6 +3,7 @@
 
 import { createPrivateKey, createSign, constants as cryptoConstants, type KeyObject } from 'crypto';
 import fetch from 'node-fetch';
+import { withRetry } from '../retry.js';
 
 const BASE_URL = 'https://api.elections.kalshi.com/trade-api/v2';
 const API_PREFIX = '/trade-api/v2';
@@ -44,21 +45,25 @@ function headers(method: string, path: string): Record<string, string> {
 }
 
 async function kGet<T>(path: string, params?: Record<string, string>): Promise<T> {
-  const url = new URL(BASE_URL + path);
-  if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const r = await fetch(url.toString(), { method: 'GET', headers: headers('GET', path) });
-  if (!r.ok) throw new Error(`Kalshi GET ${path} ${r.status}: ${await r.text()}`);
-  return (await r.json()) as T;
+  return withRetry(async () => {
+    const url = new URL(BASE_URL + path);
+    if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+    const r = await fetch(url.toString(), { method: 'GET', headers: headers('GET', path) });
+    if (!r.ok) throw new Error(`Kalshi GET ${path} ${r.status}: ${await r.text()}`);
+    return (await r.json()) as T;
+  });
 }
 
 async function kPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
-  const r = await fetch(BASE_URL + path, {
-    method: 'POST',
-    headers: headers('POST', path),
-    body: JSON.stringify(body),
+  return withRetry(async () => {
+    const r = await fetch(BASE_URL + path, {
+      method: 'POST',
+      headers: headers('POST', path),
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`Kalshi POST ${path} ${r.status}: ${await r.text()}`);
+    return (await r.json()) as T;
   });
-  if (!r.ok) throw new Error(`Kalshi POST ${path} ${r.status}: ${await r.text()}`);
-  return (await r.json()) as T;
 }
 
 export interface KalshiMarket {

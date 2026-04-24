@@ -41,6 +41,10 @@ export interface SafetyConfig {
   HARD_STOP_LOSS_PCT: number;              // 0.20 = auto-exit position at 20% loss
   HARD_TAKE_PROFIT_PCT: number;            // 0.50 = auto-lock gain at 50% above entry
   HARD_MAX_PER_GAME_DOLLARS: number;       // cap on total $ across correlated gameId bets
+  HARD_MAX_PER_SPORT_DAILY_DOLLARS: number;// cap on total daily $ per sport (anti-concentration)
+  HARD_MAX_BETS_PER_DAY: number;           // cap on total bet count per day
+  HARD_MAX_SPREAD_PCT: number;             // skip thin markets where (ask-bid)/ask > this
+  HARD_DRAWDOWN_ALERT_PCT: number;         // alert when equity drops this fraction below peak
 
   // Soft defaults (configurable via env, still capped by HARD_ values above)
   softMaxBetDollars: number;

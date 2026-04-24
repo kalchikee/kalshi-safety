@@ -1,10 +1,13 @@
 // Paper equity curve — records cumulative paper P&L per day across all sports
 // and renders a simple ASCII sparkline in the daily recap embed.
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { atomicWriteFile } from './atomic.js';
 import { DRY_RUN_SPORTS } from './allSports.js';
 import { loadPaperState } from './paperTradeGate.js';
+import { HARD_LIMITS } from './config.js';
+import { sendSafetyAlert } from './alerts.js';
 
 interface EquityPoint {
   date: string;
@@ -33,8 +36,31 @@ export function loadEquity(stateDir = 'safety-state'): EquitySeries {
 }
 
 function saveEquity(series: EquitySeries, stateDir = 'safety-state'): void {
-  mkdirSync(stateDir, { recursive: true });
-  writeFileSync(stateFile(stateDir), JSON.stringify(series, null, 2));
+  atomicWriteFile(stateFile(stateDir), JSON.stringify(series, null, 2));
+}
+
+/** Check for a new drawdown ≥ HARD_DRAWDOWN_ALERT_PCT since the peak. Returns
+ *  the alert message if triggered, or null otherwise. Idempotent — only
+ *  alerts the first time the drawdown crosses the threshold this session. */
+export async function checkDrawdown(series: EquitySeries): Promise<boolean> {
+  if (series.points.length < 3) return false;
+  const values = series.points.map((p) => p.cumulativePnl);
+  const peak = Math.max(...values);
+  const latest = values[values.length - 1]!;
+  if (peak <= 0) return false;  // haven't been in profit yet
+  const drawdown = (peak - latest) / peak;
+  if (drawdown < HARD_LIMITS.HARD_DRAWDOWN_ALERT_PCT) return false;
+  await sendSafetyAlert({
+    title: `Drawdown alert: ${(drawdown * 100).toFixed(1)}% below peak`,
+    description: `Paper equity has fallen from peak $${peak.toFixed(2)} to $${latest.toFixed(2)}.`,
+    color: 0xE67E22,
+    fields: [
+      { name: 'Peak', value: `$${peak.toFixed(2)}`, inline: true },
+      { name: 'Current', value: `$${latest.toFixed(2)}`, inline: true },
+      { name: 'Drawdown', value: `${(drawdown * 100).toFixed(1)}%`, inline: true },
+    ],
+  });
+  return true;
 }
 
 /** Call from the recap action AFTER settlements are processed. Totals up

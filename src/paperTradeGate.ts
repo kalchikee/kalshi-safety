@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { atomicWriteFile } from './atomic.js';
 import type { BetRequest } from './types.js';
 
 // Every sport starts in PAPER mode. To graduate to live, the sport must
@@ -47,9 +48,7 @@ function statePath(sport: string, dir = DEFAULT_DIR): string {
 }
 
 function writeState(state: PaperState, dir = DEFAULT_DIR): void {
-  const path = statePath(state.sport, dir);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(state, null, 2));
+  atomicWriteFile(statePath(state.sport, dir), JSON.stringify(state, null, 2));
 }
 
 export function loadPaperState(sport: string, dir = DEFAULT_DIR): PaperState {

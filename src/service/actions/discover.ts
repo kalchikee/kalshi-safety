@@ -49,7 +49,9 @@ async function fetchAllOpen(): Promise<Market[]> {
   return out;
 }
 
-function prefixOf(ticker: string, depth = 2): string {
+/** Extract the base category (first dash-segment). That's the "sport/event
+ *  family" grouping Kalshi uses — per-market suffixes are date+team codes. */
+function prefixOf(ticker: string, depth = 1): string {
   return ticker.split('-').slice(0, depth).join('-');
 }
 

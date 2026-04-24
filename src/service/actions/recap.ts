@@ -9,7 +9,7 @@ import { DRY_RUN_SPORTS } from '../../allSports.js';
 import { loadLiveState, saveLiveState } from '../liveBets.js';
 import { sendRecap, type RecapBet } from '../discord.js';
 import { sendAggregateDailySummary } from '../../dailySummary.js';
-import { appendEquityPoint, loadEquity, renderSparkline } from '../../equityCurve.js';
+import { appendEquityPoint, loadEquity, renderSparkline, checkDrawdown } from '../../equityCurve.js';
 
 function log(level: 'info' | 'warn' | 'error', msg: string, extra: Record<string, unknown> = {}): void {
   // eslint-disable-next-line no-console
@@ -136,6 +136,13 @@ export async function runRecap(date: string): Promise<void> {
     sparkline: renderSparkline(series.points),
     days: series.points.length,
   };
+
+  // Fire a separate drawdown alert if we've dropped ≥ threshold from peak
+  try {
+    await checkDrawdown(series);
+  } catch (err) {
+    log('warn', 'drawdown check failed', { err: String(err) });
+  }
 
   await sendRecap(date, bets, mode, equity);
   // Also post the paper-only aggregate summary (30-day dry run W/L across all sports).

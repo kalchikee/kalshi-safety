@@ -113,14 +113,19 @@ export function checkGameExposure(
   // metadata at call site. For now we check by ticker prefix / substring match —
   // callers must keep gameId in the request.reason so we can pattern-match.
   const thisBetDollars = (req.priceCents / 100) * req.contracts;
-  // Positions don't carry gameId today, but callers will pre-filter which
-  // positions are correlated. To keep this function pure, we accept the caller
-  // to pre-compute the list; but here we do a simple name-substring check.
-  const correlated = openPositions.filter((p) => {
-    // The ticker may contain the game id fragment (e.g. "26APR24PHI ATL" or "PHIATL").
-    const frag = gameId.split('-').slice(2).join('').toUpperCase();
-    return frag.length >= 3 && p.ticker.toUpperCase().includes(frag);
-  });
+  // GameIds follow the convention `<sport>-<date>-<away>-<home>` (e.g.
+  // `mlb-2026-04-24-PHI-ATL`). The last two dash-segments are team codes
+  // ≥2 chars long. Kalshi tickers for that game include both codes
+  // (e.g. `KXMLBGAME-26APR241915PHIATL-ATL`). We consider two positions
+  // correlated if they mention BOTH team codes in their ticker.
+  const segments = gameId.split('-').filter((s) => /^[A-Za-z]{2,5}$/.test(s));
+  const teamCodes = segments.slice(-2).map((s) => s.toUpperCase());
+  const correlated = teamCodes.length < 2
+    ? []
+    : openPositions.filter((p) => {
+        const up = p.ticker.toUpperCase();
+        return teamCodes.every((code) => up.includes(code));
+      });
   const currentExposure = correlated.reduce((s, p) => s + p.costBasisDollars, 0);
   const newTotal = currentExposure + thisBetDollars;
   if (newTotal > cfg.HARD_MAX_PER_GAME_DOLLARS) {
@@ -135,6 +140,75 @@ export function checkGameExposure(
     reason: `game exposure $${newTotal.toFixed(2)} within $${cfg.HARD_MAX_PER_GAME_DOLLARS} cap`,
     currentExposure,
   };
+}
+
+/** Per-sport daily-exposure cap — no more than N dollars on any single sport
+ *  per day. Forces diversification across the day's sports. */
+export function checkPerSportDaily(
+  req: BetRequest,
+  sportDollarsToday: number,
+  cfg: SafetyConfig,
+): { allowed: boolean; reason: string } {
+  const thisBet = (req.priceCents / 100) * req.contracts;
+  const projected = sportDollarsToday + thisBet;
+  if (projected > cfg.HARD_MAX_PER_SPORT_DAILY_DOLLARS) {
+    return {
+      allowed: false,
+      reason: `${req.sport} daily cap: $${projected.toFixed(2)} > $${cfg.HARD_MAX_PER_SPORT_DAILY_DOLLARS}`,
+    };
+  }
+  return {
+    allowed: true,
+    reason: `${req.sport} daily exposure $${projected.toFixed(2)} of $${cfg.HARD_MAX_PER_SPORT_DAILY_DOLLARS}`,
+  };
+}
+
+/** Per-day bet count cap. */
+export function checkDailyBetCount(
+  betsPlacedToday: number,
+  cfg: SafetyConfig,
+): { allowed: boolean; reason: string } {
+  if (betsPlacedToday >= cfg.HARD_MAX_BETS_PER_DAY) {
+    return {
+      allowed: false,
+      reason: `already placed ${betsPlacedToday} of ${cfg.HARD_MAX_BETS_PER_DAY} daily bet limit`,
+    };
+  }
+  return {
+    allowed: true,
+    reason: `${betsPlacedToday}/${cfg.HARD_MAX_BETS_PER_DAY} bets today`,
+  };
+}
+
+/** Market liquidity check: spread too wide or volume zero → skip. */
+export function checkLiquidity(
+  yesBid: number,
+  yesAsk: number,
+  noBid: number,
+  noAsk: number,
+  side: 'yes' | 'no',
+  volume: number | undefined,
+  cfg: SafetyConfig,
+): { allowed: boolean; reason: string } {
+  const ask = side === 'yes' ? yesAsk : noAsk;
+  const bid = side === 'yes' ? yesBid : noBid;
+  if (!ask || ask <= 0 || ask >= 100) {
+    return { allowed: false, reason: `${side.toUpperCase()} ask ${ask}¢ is invalid` };
+  }
+  if (!bid || bid <= 0) {
+    return { allowed: false, reason: `${side.toUpperCase()} bid is 0 — no exit liquidity` };
+  }
+  const spreadPct = (ask - bid) / ask;
+  if (spreadPct > cfg.HARD_MAX_SPREAD_PCT) {
+    return {
+      allowed: false,
+      reason: `spread ${(spreadPct * 100).toFixed(1)}% (${bid}¢/${ask}¢) > ${(cfg.HARD_MAX_SPREAD_PCT * 100).toFixed(0)}% cap — market too thin`,
+    };
+  }
+  if (volume !== undefined && volume === 0) {
+    return { allowed: false, reason: 'market has 0 volume — illiquid' };
+  }
+  return { allowed: true, reason: `liquid (spread ${(spreadPct * 100).toFixed(1)}%, vol ${volume ?? '?'})` };
 }
 
 /** Line-move check — if Kalshi's implied market probability has already drifted
