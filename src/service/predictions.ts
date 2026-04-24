@@ -36,24 +36,24 @@ export interface SportSource {
   predictionsPath: string;
 }
 
-/** Built-in mapping — extend by editing here or via ENV. */
+/** Built-in mapping — actual GitHub repo + branch per sport. */
 export const DEFAULT_SOURCES: SportSource[] = [
-  { sport: 'MLB',            repo: 'kalchikee/MLB',            branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'NBA',            repo: 'kalchikee/NBA',            branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'NFL',            repo: 'kalchikee/NFL',            branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'NHL',            repo: 'kalchikee/NHL',            branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'EPL',            repo: 'kalchikee/EPL',            branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'MLS',            repo: 'kalchikee/MLS',            branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'NCAAM',          repo: 'kalchikee/NCAAM',          branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'NCAAF',          repo: 'kalchikee/NCAAF',          branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'NCAAW',          repo: 'kalchikee/NCAAW',          branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'UFC',            repo: 'kalchikee/UFC',            branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'WNBA',           repo: 'kalchikee/WNBA',           branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'F1',             repo: 'kalchikee/F1',             branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'TENNIS',         repo: 'kalchikee/Grand-Slams',    branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'MARCH_MADNESS',  repo: 'kalchikee/March-Madness',  branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'PARLAY',         repo: 'kalchikee/Parlay-Pick',    branch: 'master', predictionsPath: 'predictions' },
-  { sport: 'PREDICT',        repo: 'kalchikee/Predict-Picks',  branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'MLB',           repo: 'kalchikee/MLBKalchi',            branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'NBA',           repo: 'kalchikee/nba-oracle',           branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'NFL',           repo: 'Kalchikee/nfl-oracle',           branch: 'main',   predictionsPath: 'predictions' },
+  { sport: 'NHL',           repo: 'kalchikee/nhl-oracle',           branch: 'main',   predictionsPath: 'predictions' },
+  { sport: 'EPL',           repo: 'kalchikee/EPL',                  branch: 'main',   predictionsPath: 'predictions' },
+  { sport: 'MLS',           repo: 'kalchikee/kalshi-mls-oracle',    branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'NCAAM',         repo: 'kalchikee/ncaam-oracle',         branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'NCAAF',         repo: 'kalchikee/ncaaf-oracle',         branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'NCAAW',         repo: 'kalchikee/ncaaw-oracle',         branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'UFC',           repo: 'kalchikee/ufc-oracle',           branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'WNBA',          repo: 'kalchikee/wnba-oracle',          branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'F1',            repo: 'kalchikee/f1-oracle',            branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'TENNIS',        repo: 'kalchikee/grand-slams-oracle',   branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'MARCH_MADNESS', repo: 'kalchikee/march-madness-oracle', branch: 'master', predictionsPath: 'predictions' },
+  { sport: 'PARLAY',        repo: 'kalchikee/parlay-picks',         branch: 'master', predictionsPath: 'predictions' },
+  // Predict Picks is local-only — no GitHub repo, skipped.
 ];
 
 export async function fetchPredictionsForSport(
