@@ -15,6 +15,12 @@ export const HARD_LIMITS = {
   PAPER_TRADE_DAYS_REQUIRED: 30,
   // Stop-loss: auto-exit any position that loses this fraction of its cost
   HARD_STOP_LOSS_PCT: 0.20,
+  // Take-profit: auto-exit any position that has gained this fraction of its cost.
+  // Locks gains before variance can give them back. Matches the stop-loss in spirit.
+  HARD_TAKE_PROFIT_PCT: 0.50,
+  // Per-game correlated-exposure cap: don't stack more than this many dollars
+  // across positions tied to the same underlying gameId.
+  HARD_MAX_PER_GAME_DOLLARS: 15,
 } as const;
 
 function envNum(key: string, fallback: number): number {

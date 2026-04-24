@@ -94,6 +94,90 @@ export function checkDailyLossHalt(
   };
 }
 
+/** Per-game correlated exposure cap — blocks stacking multiple positions on the
+ *  same gameId. "Same game" bets are correlated — if the team loses, all legs
+ *  lose. We cap total dollars tied to any one gameId.
+ *
+ *  Caller supplies the gameId on the request's `reason` field convention or
+ *  via the explicit `gameId` argument. */
+export function checkGameExposure(
+  req: BetRequest,
+  gameId: string | undefined,
+  openPositions: Position[],
+  cfg: SafetyConfig,
+): { allowed: boolean; reason: string; currentExposure: number } {
+  if (!gameId) {
+    return { allowed: true, reason: 'no gameId to correlate', currentExposure: 0 };
+  }
+  // A Position carries the ticker; we derive the gameId from the position's
+  // metadata at call site. For now we check by ticker prefix / substring match —
+  // callers must keep gameId in the request.reason so we can pattern-match.
+  const thisBetDollars = (req.priceCents / 100) * req.contracts;
+  // Positions don't carry gameId today, but callers will pre-filter which
+  // positions are correlated. To keep this function pure, we accept the caller
+  // to pre-compute the list; but here we do a simple name-substring check.
+  const correlated = openPositions.filter((p) => {
+    // The ticker may contain the game id fragment (e.g. "26APR24PHI ATL" or "PHIATL").
+    const frag = gameId.split('-').slice(2).join('').toUpperCase();
+    return frag.length >= 3 && p.ticker.toUpperCase().includes(frag);
+  });
+  const currentExposure = correlated.reduce((s, p) => s + p.costBasisDollars, 0);
+  const newTotal = currentExposure + thisBetDollars;
+  if (newTotal > cfg.HARD_MAX_PER_GAME_DOLLARS) {
+    return {
+      allowed: false,
+      reason: `game exposure would hit $${newTotal.toFixed(2)} (cap $${cfg.HARD_MAX_PER_GAME_DOLLARS}) across ${correlated.length} correlated positions`,
+      currentExposure,
+    };
+  }
+  return {
+    allowed: true,
+    reason: `game exposure $${newTotal.toFixed(2)} within $${cfg.HARD_MAX_PER_GAME_DOLLARS} cap`,
+    currentExposure,
+  };
+}
+
+/** Line-move check — if Kalshi's implied market probability has already drifted
+ *  close to (or past) the model's estimate, there's no edge left to capture.
+ *  Skip the bet with an informative reason. This is a cheap same-decision-time
+ *  variant of a "line move since prediction" check. */
+export function checkLineAgreement(
+  req: BetRequest,
+  agreementBand: number = 0.02,
+): { allowed: boolean; reason: string } {
+  const marketProb = req.side === 'yes' ? req.priceCents / 100 : 1 - req.priceCents / 100;
+  if (marketProb >= req.modelProb - agreementBand) {
+    return {
+      allowed: false,
+      reason: `market price (${(marketProb * 100).toFixed(1)}%) matches/exceeds model (${(req.modelProb * 100).toFixed(1)}%) — no edge left`,
+    };
+  }
+  return { allowed: true, reason: `market ${(marketProb * 100).toFixed(1)}% < model ${(req.modelProb * 100).toFixed(1)}%` };
+}
+
+/** Kelly Criterion sizing — scales bet size by edge, capped at quarter-Kelly
+ *  times bankroll. Returns recommended contract count, clamped to [1, maxCap]. */
+export function kellyContracts(
+  priceCents: number,
+  modelProb: number,
+  bankrollDollars: number,
+  minBetDollars: number,
+  maxBetDollars: number,
+): number {
+  if (priceCents <= 0 || priceCents >= 100) return 0;
+  const p = modelProb;
+  const b = (100 - priceCents) / priceCents;
+  const kellyFraction = Math.max(0, (p * b - (1 - p)) / b);
+  if (kellyFraction <= 0) return 0;
+  const quarterKelly = kellyFraction * 0.25;
+  const recommendedDollars = Math.min(
+    maxBetDollars,
+    Math.max(minBetDollars, quarterKelly * bankrollDollars),
+  );
+  const costPerContract = priceCents / 100;
+  return Math.max(1, Math.round(recommendedDollars / costPerContract));
+}
+
 /** Edge check — ensures the model's prob gives the required min edge over market. */
 export function checkMinEdge(
   req: BetRequest,

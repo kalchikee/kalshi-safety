@@ -5,6 +5,7 @@
 import 'dotenv/config';
 import { getMarket, sellPosition, PAPER_TRADING } from '../kalshiApi.js';
 import { triggerPaperStopLoss } from '../../stopLoss.js';
+import { triggerPaperTakeProfit } from '../../takeProfit.js';
 import { loadPaperState } from '../../paperTradeGate.js';
 import { getOpenLiveBets, updateLiveBet } from '../liveBets.js';
 import { HARD_LIMITS } from '../../config.js';
@@ -38,10 +39,13 @@ async function scanPaperStopLosses(): Promise<void> {
       try {
         const market = await getMarket(bet.ticker);
         if (!market) continue;
-        // triggerPaperStopLoss takes the YES-side price and internally inverts for NO bets
+        // triggerPaperStopLoss and triggerPaperTakeProfit both take the YES-side
+        // price and internally invert for NO bets. Only one fires per tick: if
+        // stop-loss settles the bet, the take-profit call finds no open bet.
         const yesPrice = market.yes_bid;
         if (yesPrice <= 0 || yesPrice >= 100) continue;
         await triggerPaperStopLoss(sport, bet.ticker, yesPrice);
+        await triggerPaperTakeProfit(sport, bet.ticker, yesPrice);
       } catch (err) {
         log('error', 'paper monitor check failed', { sport, ticker: bet.ticker, err: String(err) });
       }
@@ -76,6 +80,19 @@ async function scanLiveStopLosses(): Promise<void> {
           pctChange, pnlDollars: pnl,
         }, 'live');
         log('warn', 'live stop-loss triggered', {
+          sport: bet.sport, ticker: bet.ticker, pctChange: (pctChange * 100).toFixed(1) + '%',
+        });
+      } else if (pctChange >= HARD_LIMITS.HARD_TAKE_PROFIT_PCT) {
+        // Take-profit: sell at current bid, lock the gain
+        await sellPosition(bet.ticker, bet.side, bet.contracts, currentBid);
+        const pnl = currentValue - bet.costBasisDollars;
+        updateLiveBet(bet.ticker, {
+          settledAt: new Date().toISOString(),
+          outcome: 'win',
+          exitPriceCents: currentBid,
+          pnlDollars: pnl,
+        });
+        log('info', 'live take-profit triggered', {
           sport: bet.sport, ticker: bet.ticker, pctChange: (pctChange * 100).toFixed(1) + '%',
         });
       }

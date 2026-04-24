@@ -9,6 +9,7 @@ import { DRY_RUN_SPORTS } from '../../allSports.js';
 import { loadLiveState, saveLiveState } from '../liveBets.js';
 import { sendRecap, type RecapBet } from '../discord.js';
 import { sendAggregateDailySummary } from '../../dailySummary.js';
+import { appendEquityPoint, loadEquity, renderSparkline } from '../../equityCurve.js';
 
 function log(level: 'info' | 'warn' | 'error', msg: string, extra: Record<string, unknown> = {}): void {
   // eslint-disable-next-line no-console
@@ -124,7 +125,19 @@ export async function runRecap(date: string): Promise<void> {
   log('info', 'recap starting', { date, mode });
 
   const bets = PAPER_TRADING ? await settleOpenPaperBets(date) : await settleOpenLiveBets(date);
-  await sendRecap(date, bets, mode);
+
+  // Snapshot equity curve after settlements land
+  const point = appendEquityPoint(date);
+  const series = loadEquity();
+  const equity = {
+    cumulativePnl: point.cumulativePnl,
+    todaysPnl: point.todaysPnl,
+    totalSettledBets: point.totalSettledBets,
+    sparkline: renderSparkline(series.points),
+    days: series.points.length,
+  };
+
+  await sendRecap(date, bets, mode, equity);
   // Also post the paper-only aggregate summary (30-day dry run W/L across all sports).
   if (PAPER_TRADING) {
     try {

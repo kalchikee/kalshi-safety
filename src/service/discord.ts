@@ -125,10 +125,19 @@ export interface RecapBet {
   pnlDollars: number;
 }
 
+export interface EquitySnapshot {
+  cumulativePnl: number;
+  todaysPnl: number;
+  totalSettledBets: number;
+  sparkline: string;  // ASCII e.g. "▁▂▂▃▄▅▆▇█"
+  days: number;       // number of points in the curve
+}
+
 export async function sendRecap(
   date: string,
   bets: RecapBet[],
   mode: 'paper' | 'live',
+  equity?: EquitySnapshot,
 ): Promise<boolean> {
   const wins = bets.filter((b) => b.outcome === 'win').length;
   const losses = bets.filter((b) => b.outcome === 'loss' || b.outcome === 'stopped').length;
@@ -140,15 +149,26 @@ export async function sendRecap(
     return `${icon} **${b.sport}** ${b.matchup} → ${b.pick} · $${b.pnlDollars.toFixed(2)}`;
   }).join('\n');
 
+  const fields: EmbedField[] = [
+    { name: 'Record', value: `${wins}W–${losses}L · ${open} open`, inline: true },
+    { name: 'Net P&L (today)', value: `$${totalPnl.toFixed(2)}`, inline: true },
+  ];
+  if (equity) {
+    fields.push({
+      name: `📈 Equity curve — ${equity.days}d paper`,
+      value: `\`${equity.sparkline}\`\n**$${equity.cumulativePnl.toFixed(2)}** cumulative · ${equity.totalSettledBets} settled bets · today ${equity.todaysPnl >= 0 ? '+' : ''}$${equity.todaysPnl.toFixed(2)}`,
+      inline: false,
+    });
+  }
+  if (bets.length > 0) {
+    fields.push({ name: 'Bets', value: lines.slice(0, 1000) });
+  }
+
   return post({
     title: `Kalshi Picks · Recap — ${date}`,
     description: bets.length === 0 ? 'No bets placed.' : undefined,
     color: totalPnl > 0 ? 0x27ae60 : totalPnl < 0 ? 0xe74c3c : 0x95a5a6,
-    fields: [
-      { name: 'Record', value: `${wins}W–${losses}L · ${open} open`, inline: true },
-      { name: 'Net P&L', value: `$${totalPnl.toFixed(2)}`, inline: true },
-      ...(bets.length > 0 ? [{ name: 'Bets', value: lines.slice(0, 1000) }] : []),
-    ],
+    fields,
     footer: { text: `Kalshi Picks · ${mode.toUpperCase()}` },
     timestamp: new Date().toISOString(),
   });

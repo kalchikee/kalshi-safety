@@ -39,6 +39,8 @@ export interface SafetyConfig {
   HARD_MIN_EDGE: number;                   // 0.05 = 5%, reject sub-edge bets regardless of Kelly
   PAPER_TRADE_DAYS_REQUIRED: number;       // days of paper trading before live allowed
   HARD_STOP_LOSS_PCT: number;              // 0.20 = auto-exit position at 20% loss
+  HARD_TAKE_PROFIT_PCT: number;            // 0.50 = auto-lock gain at 50% above entry
+  HARD_MAX_PER_GAME_DOLLARS: number;       // cap on total $ across correlated gameId bets
 
   // Soft defaults (configurable via env, still capped by HARD_ values above)
   softMaxBetDollars: number;
