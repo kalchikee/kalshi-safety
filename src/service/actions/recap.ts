@@ -4,12 +4,60 @@
 
 import 'dotenv/config';
 import { getMarket, PAPER_TRADING } from '../kalshiApi.js';
-import { loadPaperState, settlePaperBet } from '../../paperTradeGate.js';
+import { loadPaperState, settlePaperBet, setPaperBetClosingProb } from '../../paperTradeGate.js';
 import { DRY_RUN_SPORTS } from '../../allSports.js';
 import { loadLiveState, saveLiveState } from '../liveBets.js';
 import { sendRecap, type RecapBet } from '../discord.js';
 import { sendAggregateDailySummary } from '../../dailySummary.js';
 import { appendEquityPoint, loadEquity, renderSparkline, checkDrawdown } from '../../equityCurve.js';
+
+interface ClvStats {
+  count: number;
+  meanPp: number;          // mean CLV in percentage points
+  positiveCount: number;
+  negativeCount: number;
+}
+
+function computeAggregateClv(): ClvStats {
+  let sumPp = 0;
+  let count = 0;
+  let pos = 0;
+  let neg = 0;
+  for (const sport of DRY_RUN_SPORTS) {
+    const state = loadPaperState(sport);
+    for (const bet of state.bets) {
+      if (typeof bet.closingMarketProb !== 'number') continue;
+      const entryProb = bet.priceCents / 100;
+      const clvPp = (bet.closingMarketProb - entryProb) * 100;
+      sumPp += clvPp;
+      count++;
+      if (clvPp > 0) pos++;
+      else if (clvPp < 0) neg++;
+    }
+  }
+  return {
+    count,
+    meanPp: count > 0 ? sumPp / count : 0,
+    positiveCount: pos,
+    negativeCount: neg,
+  };
+}
+
+/** Compute the closing market probability for OUR side of the bet from a
+ *  freshly-fetched market snapshot. Returns mid-price (avg of bid+ask) as
+ *  a probability 0..1 for the side we're long. */
+function closingProbForSide(market: { yes_bid: number; yes_ask: number; no_bid: number; no_ask: number }, side: 'yes' | 'no'): number | undefined {
+  if (side === 'yes') {
+    if (!market.yes_bid && !market.yes_ask) return undefined;
+    const mid = (market.yes_bid + market.yes_ask) / 2;
+    if (mid <= 0 || mid >= 100) return undefined;
+    return mid / 100;
+  }
+  if (!market.no_bid && !market.no_ask) return undefined;
+  const mid = (market.no_bid + market.no_ask) / 2;
+  if (mid <= 0 || mid >= 100) return undefined;
+  return mid / 100;
+}
 
 function log(level: 'info' | 'warn' | 'error', msg: string, extra: Record<string, unknown> = {}): void {
   // eslint-disable-next-line no-console
@@ -58,6 +106,11 @@ async function settleOpenPaperBets(date: string): Promise<RecapBet[]> {
             (market.result === 'yes' && bet.side === 'yes') ||
             (market.result === 'no' && bet.side === 'no');
           settlePaperBet(sport, bet.ticker, won ? 'win' : 'loss');
+          // CLV: record the market's mid for our side at settle time
+          const closingProb = closingProbForSide(market, bet.side);
+          if (closingProb !== undefined) {
+            setPaperBetClosingProb(sport, bet.ticker, closingProb);
+          }
           const entry = bet.priceCents * bet.contracts / 100;
           const payout = won ? bet.contracts : 0;
           out.push({
@@ -104,6 +157,8 @@ async function settleOpenLiveBets(date: string): Promise<RecapBet[]> {
         bet.settledAt = new Date().toISOString();
         bet.outcome = won ? 'win' : 'loss';
         bet.pnlDollars = pnl;
+        const closingProb = closingProbForSide(market, bet.side);
+        if (closingProb !== undefined) bet.closingMarketProb = closingProb;
         out.push({
           sport: bet.sport,
           matchup: bet.ticker,
@@ -126,6 +181,12 @@ export async function runRecap(date: string): Promise<void> {
 
   const bets = PAPER_TRADING ? await settleOpenPaperBets(date) : await settleOpenLiveBets(date);
 
+  // Aggregate CLV across all settled paper bets ever (not just today's
+  // batch). CLV in pp = closingMarketProb - (entry priceCents/100). A
+  // positive long-run average is the strongest signal that the model
+  // produces real edge over Kalshi pricing.
+  const clvStats = computeAggregateClv();
+
   // Snapshot equity curve after settlements land
   const point = appendEquityPoint(date);
   const series = loadEquity();
@@ -144,7 +205,7 @@ export async function runRecap(date: string): Promise<void> {
     log('warn', 'drawdown check failed', { err: String(err) });
   }
 
-  await sendRecap(date, bets, mode, equity);
+  await sendRecap(date, bets, mode, equity, clvStats);
   // Also post the paper-only aggregate summary (30-day dry run W/L across all sports).
   if (PAPER_TRADING) {
     try {

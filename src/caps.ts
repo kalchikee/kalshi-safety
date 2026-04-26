@@ -142,6 +142,31 @@ export function checkGameExposure(
   };
 }
 
+/** Rolling 7-day exposure cap — sums the cost basis of every paper bet
+ *  placed in the last 7 days across all sports. Prevents over-trading
+ *  during heavy weeks (e.g. NCAA tournament) while still allowing the
+ *  per-day cap to burst on a single big day. */
+export function checkWeeklyExposure(
+  req: BetRequest,
+  weeklyDollarsPlaced: number,
+  cfg: SafetyConfig,
+): { allowed: boolean; reason: string; remainingDollars: number } {
+  const thisBet = (req.priceCents / 100) * req.contracts;
+  const remaining = cfg.HARD_MAX_WEEKLY_EXPOSURE_DOLLARS - weeklyDollarsPlaced;
+  if (thisBet > remaining) {
+    return {
+      allowed: false,
+      reason: `bet $${thisBet.toFixed(2)} would exceed remaining 7-day budget $${remaining.toFixed(2)} of $${cfg.HARD_MAX_WEEKLY_EXPOSURE_DOLLARS} (placed $${weeklyDollarsPlaced.toFixed(2)} in last 7d)`,
+      remainingDollars: remaining,
+    };
+  }
+  return {
+    allowed: true,
+    reason: `7-day budget remaining $${remaining.toFixed(2)}`,
+    remainingDollars: remaining,
+  };
+}
+
 /** Per-sport daily-exposure cap — no more than N dollars on any single sport
  *  per day. Forces diversification across the day's sports. */
 export function checkPerSportDaily(
@@ -209,6 +234,33 @@ export function checkLiquidity(
     return { allowed: false, reason: 'market has 0 volume — illiquid' };
   }
   return { allowed: true, reason: `liquid (spread ${(spreadPct * 100).toFixed(1)}%, vol ${volume ?? '?'})` };
+}
+
+/** Vegas-disagreement filter — if our model and Vegas (typically the most
+ *  efficient market) disagree by more than `maxDisagreement` percentage
+ *  points, skip the bet. Vegas has billions in capital pricing these
+ *  outcomes; when our model's view differs by 10pp+, we are far more
+ *  likely to be wrong than they are. Skips one in three bets but
+ *  preserves the ones with real edge. */
+export function checkVegasAgreement(
+  modelProb: number,
+  vegasProb: number | undefined | null,
+  maxDisagreementPp: number = 10,
+): { allowed: boolean; reason: string } {
+  if (vegasProb === undefined || vegasProb === null || vegasProb <= 0 || vegasProb >= 1) {
+    return { allowed: true, reason: 'no Vegas line — skipping check' };
+  }
+  const diffPp = Math.abs(modelProb - vegasProb) * 100;
+  if (diffPp > maxDisagreementPp) {
+    return {
+      allowed: false,
+      reason: `model ${(modelProb * 100).toFixed(1)}% diverges ${diffPp.toFixed(1)}pp from Vegas ${(vegasProb * 100).toFixed(1)}% (>${maxDisagreementPp}pp limit)`,
+    };
+  }
+  return {
+    allowed: true,
+    reason: `model/Vegas agree within ${diffPp.toFixed(1)}pp`,
+  };
 }
 
 /** Line-move check — if Kalshi's implied market probability has already drifted

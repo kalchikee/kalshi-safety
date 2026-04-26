@@ -11,7 +11,8 @@ import 'dotenv/config';
 import { checkBet } from '../../index.js';
 import type { BetRequest, Position } from '../../types.js';
 import type { DryRunSport } from '../../allSports.js';
-import { recordPaperBet } from '../../paperTradeGate.js';
+import { DRY_RUN_SPORTS } from '../../allSports.js';
+import { recordPaperBet, loadPaperState } from '../../paperTradeGate.js';
 import { fetchAllPredictions } from '../predictions.js';
 import { getResolver, supportedSports } from '../markets/registry.js';
 import { resolveParlayLegs } from '../markets/parlay.js';
@@ -24,6 +25,7 @@ import { sendSafetyAlert } from '../../alerts.js';
 import {
   checkGameExposure, checkLineAgreement, kellyContracts,
   checkPerSportDaily, checkDailyBetCount, checkLiquidity,
+  checkVegasAgreement, checkWeeklyExposure,
 } from '../../caps.js';
 import { loadConfig } from '../../config.js';
 import { getPerSportFloor } from '../../calibration.js';
@@ -81,6 +83,21 @@ export async function runBetAction(date: string): Promise<void> {
   let todayDollars = 0;
   let betsPlaced = 0;
   const perSportDollars: Record<string, number> = {};
+
+  // Rolling 7-day exposure: sum cost basis of every paper bet across every
+  // sport in the last 7 days. Recomputed once per run (acceptable since
+  // each bet incrementally raises this within the run too).
+  const sevenDaysAgoMs = Date.now() - 7 * 24 * 3600 * 1000;
+  let weeklyDollars = 0;
+  for (const sport of DRY_RUN_SPORTS) {
+    const state = loadPaperState(sport);
+    for (const b of state.bets) {
+      if (new Date(b.placedAt).getTime() >= sevenDaysAgoMs) {
+        weeklyDollars += (b.priceCents / 100) * b.contracts;
+      }
+    }
+  }
+  log('info', '7-day exposure baseline', { weeklyDollars: weeklyDollars.toFixed(2) });
   const openPositions: Position[] = getOpenLiveBets().map((b) => ({
     sport: b.sport,
     ticker: b.ticker,
@@ -209,6 +226,18 @@ export async function runBetAction(date: string): Promise<void> {
         continue;
       }
 
+      // Vegas-disagreement filter: if model and Vegas are >10pp apart,
+      // Vegas is almost always more right. Skip the bet.
+      const vegasCheck = checkVegasAgreement(pick.modelProb, pick.vegasProb);
+      if (!vegasCheck.allowed) {
+        skipped.push({
+          sport: file.sport,
+          matchup: `${pick.away} @ ${pick.home}`,
+          reason: vegasCheck.reason,
+        });
+        continue;
+      }
+
       // Pre-bet line-move check — if the Kalshi ask already reflects the model's
       // view, the edge is gone. Skip rather than bet into a priced-in market.
       const draftReq: BetRequest = {
@@ -277,6 +306,17 @@ export async function runBetAction(date: string): Promise<void> {
         continue;
       }
 
+      // Rolling 7-day exposure cap
+      const weeklyCheck = checkWeeklyExposure(req, weeklyDollars, cfg);
+      if (!weeklyCheck.allowed) {
+        skipped.push({
+          sport: file.sport,
+          matchup: `${pick.away} @ ${pick.home}`,
+          reason: weeklyCheck.reason,
+        });
+        continue;
+      }
+
       const decision = await checkBet(req, {
         todayDollarsPlaced: todayDollars,
         openPositions,
@@ -308,6 +348,7 @@ export async function runBetAction(date: string): Promise<void> {
         todayDollars += costBasis;
         betsPlaced++;
         perSportDollars[file.sport] = (perSportDollars[file.sport] ?? 0) + costBasis;
+        weeklyDollars += costBasis;
         log('info', DRY_RUN ? 'paper bet (DRY RUN — not recorded)' : 'paper bet recorded', {
           sport: file.sport, ticker: resolved.ticker, contracts: execContracts,
         });
@@ -343,6 +384,7 @@ export async function runBetAction(date: string): Promise<void> {
         todayDollars += costBasis;
         betsPlaced++;
         perSportDollars[file.sport] = (perSportDollars[file.sport] ?? 0) + costBasis;
+        weeklyDollars += costBasis;
         placed.push({
           sport: file.sport, matchup: `${pick.away} @ ${pick.home}`,
           pick: pick.pickedTeam,
@@ -441,6 +483,12 @@ export async function runBetAction(date: string): Promise<void> {
       return;
     }
 
+    const weeklyCheck = checkWeeklyExposure(req, weeklyDollars, cfg);
+    if (!weeklyCheck.allowed) {
+      _skipped.push({ sport, matchup, reason: weeklyCheck.reason });
+      return;
+    }
+
     const decision = await checkBet(req, {
       todayDollarsPlaced: getTodayDollars(),
       openPositions: _openPositions,
@@ -466,6 +514,7 @@ export async function runBetAction(date: string): Promise<void> {
       setTodayDollars(getTodayDollars() + costBasis);
       betsPlaced++;
       perSportDollars[sport] = (perSportDollars[sport] ?? 0) + costBasis;
+      weeklyDollars += costBasis;
       log('info', DRY_RUN ? 'parlay leg paper bet (DRY RUN)' : 'parlay leg paper bet recorded', { sport, ticker: resolved.ticker });
     } else {
       try {
@@ -488,6 +537,7 @@ export async function runBetAction(date: string): Promise<void> {
         setTodayDollars(getTodayDollars() + costBasis);
         betsPlaced++;
         perSportDollars[sport] = (perSportDollars[sport] ?? 0) + costBasis;
+      weeklyDollars += costBasis;
         _placed.push({
           sport, matchup, pick: originalPick.pickedTeam,
           ticker: resolved.ticker, side: resolved.side,

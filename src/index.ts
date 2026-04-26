@@ -11,7 +11,7 @@ import { sendSafetyAlert } from './alerts.js';
 
 export { isKillSwitchActive } from './killSwitch.js';
 export {
-  loadPaperState, recordPaperBet, settlePaperBet,
+  loadPaperState, recordPaperBet, settlePaperBet, setPaperBetClosingProb,
   isLiveEligible, activateLive,
   getDailySummary, getDryRunDuration, getBetsSettledOnDate,
 } from './paperTradeGate.js';

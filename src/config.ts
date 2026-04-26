@@ -33,6 +33,11 @@ export const HARD_LIMITS = {
   // Drawdown threshold (as a fraction of peak equity). Triggers Discord alert
   // when cumulative paper P&L drops below (peak × (1 - drawdown)).
   HARD_DRAWDOWN_ALERT_PCT: 0.10,
+  // Rolling 7-day exposure cap. Sized to allow ~$57/day average across a week
+  // while not blowing the budget on heavy days (e.g. NCAA tournament Saturdays
+  // can have 16+ qualifying picks). Paired with the per-day $75 cap, this
+  // prevents both same-day concentration and weekly over-trading.
+  HARD_MAX_WEEKLY_EXPOSURE_DOLLARS: 400,
 } as const;
 
 function envNum(key: string, fallback: number): number {

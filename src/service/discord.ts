@@ -153,11 +153,19 @@ export interface EquitySnapshot {
   days: number;       // number of points in the curve
 }
 
+export interface ClvSnapshot {
+  count: number;            // number of settled bets with a closing-price reading
+  meanPp: number;           // average CLV in percentage points; positive = good
+  positiveCount: number;    // bets that closed at a better price than we paid
+  negativeCount: number;    // bets that closed worse
+}
+
 export async function sendRecap(
   date: string,
   bets: RecapBet[],
   mode: 'paper' | 'live',
   equity?: EquitySnapshot,
+  clv?: ClvSnapshot,
 ): Promise<boolean> {
   const wins = bets.filter((b) => b.outcome === 'win').length;
   const losses = bets.filter((b) => b.outcome === 'loss' || b.outcome === 'stopped').length;
@@ -177,6 +185,15 @@ export async function sendRecap(
     fields.push({
       name: `📈 Equity curve — ${equity.days}d paper`,
       value: `\`${equity.sparkline}\`\n**$${equity.cumulativePnl.toFixed(2)}** cumulative · ${equity.totalSettledBets} settled bets · today ${equity.todaysPnl >= 0 ? '+' : ''}$${equity.todaysPnl.toFixed(2)}`,
+      inline: false,
+    });
+  }
+  if (clv && clv.count > 0) {
+    const pct = clv.count > 0 ? (clv.positiveCount / clv.count * 100).toFixed(0) : '—';
+    const sign = clv.meanPp >= 0 ? '+' : '';
+    fields.push({
+      name: `🎯 Closing-line value — ${clv.count} bets`,
+      value: `Avg CLV: **${sign}${clv.meanPp.toFixed(2)} pp** · ${clv.positiveCount}W ${clv.negativeCount}L (${pct}% beat the close)\n_Positive long-run CLV = real edge over the market._`,
       inline: false,
     });
   }

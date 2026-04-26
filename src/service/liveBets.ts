@@ -20,6 +20,9 @@ export interface LiveBetRecord {
   outcome?: 'win' | 'loss' | 'stopped';
   exitPriceCents?: number;
   pnlDollars?: number;
+  /** Closing market probability for our side at settle time (0-1). Used
+   *  to compute CLV = closingMarketProb - (priceCents/100). */
+  closingMarketProb?: number;
 }
 
 export interface LiveState {

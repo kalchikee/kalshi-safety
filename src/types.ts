@@ -45,6 +45,7 @@ export interface SafetyConfig {
   HARD_MAX_BETS_PER_DAY: number;           // cap on total bet count per day
   HARD_MAX_SPREAD_PCT: number;             // skip thin markets where (ask-bid)/ask > this
   HARD_DRAWDOWN_ALERT_PCT: number;         // alert when equity drops this fraction below peak
+  HARD_MAX_WEEKLY_EXPOSURE_DOLLARS: number;// rolling 7-day total exposure cap
 
   // Soft defaults (configurable via env, still capped by HARD_ values above)
   softMaxBetDollars: number;

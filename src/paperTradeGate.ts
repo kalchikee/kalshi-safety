@@ -29,6 +29,12 @@ export interface PaperBetRecord {
   outcome?: 'win' | 'loss' | 'push';
   /** P&L in dollars (positive = profit, negative = loss) */
   pnlDollars?: number;
+  /** Closing-line value tracking (populated at settle time):
+   *  closing market mid-price for OUR side, expressed as a probability
+   *  (0-1). CLV (in pp) = closingMarketProb - (priceCents/100). Positive
+   *  CLV across many bets is the strongest signal that the model has
+   *  real edge over Kalshi pricing. */
+  closingMarketProb?: number;
 }
 
 export interface PaperState {
@@ -143,6 +149,25 @@ export function settlePaperBet(
   }
   writeState(state, dir);
   return bet;
+}
+
+/** Set the closing-market probability for the most recently settled paper
+ *  bet on a ticker. Used by the recap to record CLV after settlement. */
+export function setPaperBetClosingProb(
+  sport: string,
+  ticker: string,
+  closingProb: number,
+  dir = DEFAULT_DIR,
+): void {
+  const state = loadPaperState(sport, dir);
+  // Find most recent settled bet on this ticker
+  const idx = [...state.bets].reverse().findIndex(
+    (b) => b.ticker === ticker && b.settledAt,
+  );
+  if (idx < 0) return;
+  const realIdx = state.bets.length - 1 - idx;
+  state.bets[realIdx]!.closingMarketProb = closingProb;
+  writeState(state, dir);
 }
 
 /** Returns paper bets settled during a given calendar date (YYYY-MM-DD in UTC). */
