@@ -278,8 +278,10 @@ export async function runBetAction(date: string): Promise<void> {
         }
       }
 
-      // Kelly-criterion sizing — scales contracts with edge, capped at quarter-Kelly
-      const contracts = kellyContracts(
+      // Kelly-criterion sizing — scales contracts with edge, capped at quarter-Kelly.
+      // For high-conviction picks, Kelly's edge check is bypassed: we fall
+      // back to BET_SIZE_DOLLARS as a minimum so the pick gets placed.
+      let contracts = kellyContracts(
         resolved.entryPriceCents,
         pick.modelProb,
         PAPER_BANKROLL,
@@ -287,12 +289,19 @@ export async function runBetAction(date: string): Promise<void> {
         MAX_BET_DOLLARS,
       );
       if (contracts === 0) {
-        skipped.push({
-          sport: file.sport,
-          matchup: `${pick.away} @ ${pick.home}`,
-          reason: 'Kelly returned 0 (no positive edge at current price)',
-        });
-        continue;
+        if (isHighConviction) {
+          contracts = Math.max(
+            1,
+            Math.round(BET_SIZE_DOLLARS / (resolved.entryPriceCents / 100)),
+          );
+        } else {
+          skipped.push({
+            sport: file.sport,
+            matchup: `${pick.away} @ ${pick.home}`,
+            reason: 'Kelly returned 0 (no positive edge at current price)',
+          });
+          continue;
+        }
       }
 
       const req: BetRequest = {
@@ -480,7 +489,8 @@ export async function runBetAction(date: string): Promise<void> {
       return;
     }
 
-    const contracts = kellyContracts(
+    const isHighConviction = resolved.modelProb >= HIGH_CONVICTION_THRESHOLD;
+    let contracts = kellyContracts(
       resolved.entryPriceCents,
       resolved.modelProb,
       PAPER_BANKROLL,
@@ -488,8 +498,15 @@ export async function runBetAction(date: string): Promise<void> {
       MAX_BET_DOLLARS,
     );
     if (contracts === 0) {
-      _skipped.push({ sport, matchup, reason: 'Kelly returned 0 (no edge)' });
-      return;
+      if (isHighConviction) {
+        contracts = Math.max(
+          1,
+          Math.round(BET_SIZE_DOLLARS / (resolved.entryPriceCents / 100)),
+        );
+      } else {
+        _skipped.push({ sport, matchup, reason: 'Kelly returned 0 (no edge)' });
+        return;
+      }
     }
 
     const req: BetRequest = {
@@ -522,7 +539,7 @@ export async function runBetAction(date: string): Promise<void> {
       openPositions: _openPositions,
       todayRealizedLoss: 0,
       requestLive,
-      bypassMinEdge: resolved.modelProb >= HIGH_CONVICTION_THRESHOLD,
+      bypassMinEdge: isHighConviction,
     });
     if (!decision.allowed) {
       _skipped.push({ sport, matchup, reason: decision.reason ?? 'blocked by safety' });
