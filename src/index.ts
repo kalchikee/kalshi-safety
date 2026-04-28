@@ -44,6 +44,12 @@ export interface CheckBetContext {
   requestLive?: boolean;
   /** Override safety-state directory (for tests). */
   stateDir?: string;
+  /** When true, skip the HARD_MIN_EDGE check. Used by the bet runner for
+   *  high-conviction picks (modelProb >= KALSHI_HIGH_CONVICTION_THRESHOLD)
+   *  where the user has explicitly opted into placing the bet even when
+   *  the market already prices the outcome at or above the model. Other
+   *  hard limits (caps, kill switch, balance) still apply. */
+  bypassMinEdge?: boolean;
 }
 
 /**
@@ -100,8 +106,13 @@ export async function checkBet(
       };
     }
 
-    // 3. Min-edge gate — reject sub-edge bets even if Kelly said yes
-    const edge = checkMinEdge(req, cfg);
+    // 3. Min-edge gate — reject sub-edge bets even if Kelly said yes.
+    // High-conviction picks (modelProb >= threshold) bypass this check via
+    // ctx.bypassMinEdge — the caller has explicitly chosen to bet on the
+    // model regardless of the market's pricing. Other caps still apply.
+    const edge = ctx.bypassMinEdge
+      ? { allowed: true, reason: 'bypassed for high-conviction pick', edge: 0 }
+      : checkMinEdge(req, cfg);
     if (!edge.allowed) violated.push('MIN_EDGE');
 
     // 4. Daily loss halt

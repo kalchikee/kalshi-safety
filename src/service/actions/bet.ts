@@ -41,6 +41,18 @@ const PAPER_BANKROLL   = parseFloat(process.env.KALSHI_PAPER_BANKROLL ?? '100');
 // Use to preview "what would Kalshi Picks bet on" without committing bets.
 const DRY_RUN = process.env.BET_DRY_RUN === 'true';
 
+// High-conviction threshold: picks at or above this modelProb skip the
+// line-agreement guard AND the HARD_MIN_EDGE check. The intent is that
+// when our model has strong conviction (e.g. >=70%), we want to record
+// the bet even if Kalshi has already priced the outcome at or above
+// our number. We're explicitly choosing to test the model's calibration
+// in those cases rather than only betting where we have an edge over
+// the market. Other safety rails (caps, liquidity, kill switch, balance)
+// still fire normally.
+const HIGH_CONVICTION_THRESHOLD = parseFloat(
+  process.env.KALSHI_HIGH_CONVICTION_THRESHOLD ?? '0.70',
+);
+
 function log(level: 'info' | 'warn' | 'error', msg: string, extra: Record<string, unknown> = {}): void {
   const line = JSON.stringify({ level, msg, ...extra, ts: new Date().toISOString() });
   // eslint-disable-next-line no-console
@@ -238,23 +250,32 @@ export async function runBetAction(date: string): Promise<void> {
         continue;
       }
 
+      // High-conviction picks (modelProb >= threshold) bypass both the
+      // line-agreement and min-edge guards. We're explicitly opting into
+      // tracking these bets even when Kalshi has already priced the outcome
+      // at or above our number, so we can measure model calibration.
+      const isHighConviction = pick.modelProb >= HIGH_CONVICTION_THRESHOLD;
+
       // Pre-bet line-move check — if the Kalshi ask already reflects the model's
       // view, the edge is gone. Skip rather than bet into a priced-in market.
-      const draftReq: BetRequest = {
-        sport: file.sport as DryRunSport,
-        ticker: resolved.ticker, side: resolved.side,
-        priceCents: resolved.entryPriceCents,
-        contracts: 1,
-        modelProb: pick.modelProb,
-      };
-      const lineCheck = checkLineAgreement(draftReq);
-      if (!lineCheck.allowed) {
-        skipped.push({
-          sport: file.sport,
-          matchup: `${pick.away} @ ${pick.home}`,
-          reason: lineCheck.reason,
-        });
-        continue;
+      // Bypassed for high-conviction picks per user policy.
+      if (!isHighConviction) {
+        const draftReq: BetRequest = {
+          sport: file.sport as DryRunSport,
+          ticker: resolved.ticker, side: resolved.side,
+          priceCents: resolved.entryPriceCents,
+          contracts: 1,
+          modelProb: pick.modelProb,
+        };
+        const lineCheck = checkLineAgreement(draftReq);
+        if (!lineCheck.allowed) {
+          skipped.push({
+            sport: file.sport,
+            matchup: `${pick.away} @ ${pick.home}`,
+            reason: lineCheck.reason,
+          });
+          continue;
+        }
       }
 
       // Kelly-criterion sizing — scales contracts with edge, capped at quarter-Kelly
@@ -322,6 +343,7 @@ export async function runBetAction(date: string): Promise<void> {
         openPositions,
         todayRealizedLoss: 0,
         requestLive,
+        bypassMinEdge: isHighConviction,
       });
 
       if (!decision.allowed) {
@@ -500,6 +522,7 @@ export async function runBetAction(date: string): Promise<void> {
       openPositions: _openPositions,
       todayRealizedLoss: 0,
       requestLive,
+      bypassMinEdge: resolved.modelProb >= HIGH_CONVICTION_THRESHOLD,
     });
     if (!decision.allowed) {
       _skipped.push({ sport, matchup, reason: decision.reason ?? 'blocked by safety' });

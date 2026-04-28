@@ -72,6 +72,10 @@ jobs:
           KALSHI_MAX_BET_DOLLARS: '10'
           KALSHI_BET_SIZE: '1'
           KALSHI_MIN_BALANCE: '5'
+          # Picks at or above this modelProb bypass the line-agreement and
+          # min-edge checks — we want to track the model's calibration even
+          # when Kalshi has already priced an outcome at or above our number.
+          KALSHI_HIGH_CONVICTION_THRESHOLD: '0.70'
           BET_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: node --loader ts-node/esm src/service/actions/bet.ts ${{ github.event.inputs.date || steps.date.outputs.date }}
 
