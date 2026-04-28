@@ -405,6 +405,12 @@ export async function runBetAction(date: string): Promise<void> {
     }
   }
 
+  // Dump every skip reason to the run log so "why was X not bet on?"
+  // questions can be answered from the run log alone — no Discord required.
+  for (const s of skipped) {
+    log('info', 'pick skipped', { sport: s.sport, matchup: s.matchup, reason: s.reason });
+  }
+
   await sendBetsPlacedSummary(date, placed, skipped, mode, DRY_RUN);
   log('info', 'bet action complete', {
     placed: placed.length,
