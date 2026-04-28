@@ -1,8 +1,26 @@
-name: Place Bets (6:30 AM ET)
+name: Place Bets (11 AM ET / 10 AM CT)
 
+# Why 15:00 UTC and not earlier: this workflow has to fire AFTER every
+# sport's prediction workflow has committed today's predictions/<date>.json
+# back to its own repo. Latest daily prediction run is MLS at 14:00 UTC.
+# A 6:30 AM ET (10:30 UTC) bet run was racing every sport and missing
+# them all except MLB.
+#
+#  Sport         Cron (UTC)
+#  ────────────  ──────────
+#  MLB           10:00
+#  EPL (Sat)     08:00
+#  WNBA          11:00
+#  Parlay        11:00
+#  NBA           12:00
+#  NHL           12:00
+#  NCAAM/W       13:00
+#  MLS           14:00
 on:
   schedule:
-    - cron: '30 10 * * *'   # 10:30 UTC = 6:30 AM ET (EDT, Mar–Nov)
+    - cron: '0 15 * * *'    # 15:00 UTC = 11:00 AM ET (EDT)
+    # UFC predictions don't fire until 18:00 UTC Saturdays — those bets
+    # get picked up by tomorrow's 15:00 UTC run when the JSON is still fresh.
   workflow_dispatch:
     inputs:
       date:
