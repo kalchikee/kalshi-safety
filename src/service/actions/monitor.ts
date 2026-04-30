@@ -1,6 +1,7 @@
-// Position monitor — scans open positions for 20% stop-losses.
-// Runs every 2 minutes in two shifts (see monitor.yml).
-// Owns both paper and live stop-loss execution.
+// Position monitor — scans open positions for 20% stop-losses
+// and 50% take-profits. Runs every 2 minutes for a fixed shift duration
+// (default 5 hours). Three shifts per day cover 1 PM – 4 AM ET; see
+// monitor.yml. Owns both paper and live stop-loss / take-profit execution.
 
 import 'dotenv/config';
 import { getMarket, sellPosition, PAPER_TRADING } from '../kalshiApi.js';
@@ -13,7 +14,15 @@ import { sendStopLossAlert } from '../discord.js';
 import { DRY_RUN_SPORTS } from '../../allSports.js';
 
 const INTERVAL_MS = parseInt(process.env.KALSHI_MONITOR_INTERVAL_MS ?? '120000', 10);
-const EXIT_HOUR = parseInt(process.env.MONITOR_EXIT_HOUR ?? '23', 10);
+
+// Duration-based exit. Replaces the old MONITOR_EXIT_HOUR check, which had a
+// midnight wraparound bug: for the late-night shift starting at 11 PM ET
+// with EXIT_HOUR=4 (4 AM ET next day), `currentHour >= EXIT_HOUR` would be
+// `23 >= 4 = true` and the monitor would exit immediately. Computing a
+// target timestamp at start eliminates timezone math entirely.
+const SHIFT_DURATION_MINUTES = parseInt(process.env.MONITOR_DURATION_MINUTES ?? '300', 10);
+const SHIFT_START_MS = Date.now();
+const SHIFT_EXIT_MS = SHIFT_START_MS + SHIFT_DURATION_MINUTES * 60 * 1000;
 
 function log(level: 'info' | 'warn' | 'error', msg: string, extra: Record<string, unknown> = {}): void {
   // eslint-disable-next-line no-console
@@ -23,12 +32,7 @@ function log(level: 'info' | 'warn' | 'error', msg: string, extra: Record<string
 }
 
 function shouldExit(): boolean {
-  const nowET = new Date().toLocaleString('en-US', {
-    timeZone: 'America/New_York',
-    hour: '2-digit', hour12: false,
-  });
-  const hour = parseInt(nowET, 10);
-  return hour >= EXIT_HOUR;
+  return Date.now() >= SHIFT_EXIT_MS;
 }
 
 async function scanPaperStopLosses(): Promise<void> {
@@ -103,7 +107,12 @@ async function scanLiveStopLosses(): Promise<void> {
 }
 
 export async function runMonitor(): Promise<void> {
-  log('info', 'monitor starting', { interval: INTERVAL_MS, exitHour: EXIT_HOUR, paper: PAPER_TRADING });
+  log('info', 'monitor starting', {
+    interval: INTERVAL_MS,
+    durationMinutes: SHIFT_DURATION_MINUTES,
+    exitAt: new Date(SHIFT_EXIT_MS).toISOString(),
+    paper: PAPER_TRADING,
+  });
 
   while (!shouldExit()) {
     try {

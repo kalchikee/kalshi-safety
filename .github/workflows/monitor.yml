@@ -1,18 +1,33 @@
-name: Position Monitor (1 PM – 11 PM ET, two shifts)
+name: Position Monitor (1 PM – 4 AM ET, three shifts)
 
-# Splits into two 5-hour shifts to stay under GitHub Actions' 6h job limit:
-#   - Afternoon: 1 PM ET (17 UTC) → 6 PM ET (22 UTC)  — MONITOR_EXIT_HOUR=18
-#   - Evening:   6 PM ET (22 UTC) → 11 PM ET (03 UTC) — MONITOR_EXIT_HOUR=23
+# Three back-to-back 5-hour shifts cover live game hours from 1 PM ET
+# through 4 AM ET. Each shift is sized to stay under GitHub Actions' 6h
+# per-job hard cap. Coverage:
+#
+#   Afternoon:   1 PM  ET  →  6 PM  ET   (17 UTC start)
+#   Evening:     6 PM  ET  →  11 PM ET   (22 UTC start)
+#   Late-night:  11 PM ET  →  4 AM  ET   (03 UTC start, next UTC day)
+#
+# The late-night shift catches NBA West Coast and NHL games that finish
+# after 11 PM ET — without it, stop-loss / take-profit on those positions
+# would have to wait for the 5 AM ET recap (often after settlement).
+#
+# Exit timing is now driven by MONITOR_DURATION_MINUTES (fixed 5h per
+# shift) computed inside monitor.ts via Date.now() rather than the old
+# "exit at hour X in ET" check, which had a midnight wraparound bug for
+# the late-night shift (hour 23 >= 4 evaluates true and would have
+# bailed immediately).
 on:
   schedule:
     - cron: '0 17 * * *'   # 17 UTC = 1 PM ET — afternoon shift
     - cron: '0 22 * * *'   # 22 UTC = 6 PM ET — evening shift
+    - cron: '0 3 * * *'    # 03 UTC = 11 PM ET previous day — late-night
   workflow_dispatch:
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 330    # 5.5h
+    timeout-minutes: 330    # 5.5h — stays under GitHub Actions 6h cap
 
     steps:
       - name: Checkout repo
@@ -39,16 +54,6 @@ jobs:
           restore-keys: |
             kalshi-safety-state-
 
-      - name: Compute shift exit hour
-        id: shift
-        run: |
-          H=$(TZ='America/New_York' date +%H)
-          if [ "$H" -lt "18" ]; then
-            echo "exit_hour=18" >> $GITHUB_OUTPUT
-          else
-            echo "exit_hour=23" >> $GITHUB_OUTPUT
-          fi
-
       - name: Run position monitor
         env:
           KALSHI_API_KEY_ID: ${{ secrets.KALSHI_API_KEY_ID }}
@@ -57,7 +62,7 @@ jobs:
           KALSHI_PAPER_TRADING: 'true'
           KALSHI_MIN_BALANCE: '5'
           KALSHI_MONITOR_INTERVAL_MS: '120000'
-          MONITOR_EXIT_HOUR: ${{ steps.shift.outputs.exit_hour }}
+          MONITOR_DURATION_MINUTES: '300'   # 5 hours per shift
         run: node --loader ts-node/esm src/service/actions/monitor.ts
 
       - name: Save safety-state
