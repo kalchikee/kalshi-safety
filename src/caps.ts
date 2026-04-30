@@ -270,7 +270,8 @@ export function checkFeeDeathZone(
     };
   }
   if (price > 85) {
-    const marketProb = req.side === 'yes' ? price / 100 : 1 - price / 100;
+    // priceCents = ask of OUR side, so price/100 = P(our side wins) per market
+    const marketProb = price / 100;
     const edge = req.modelProb - marketProb;
     if (edge < 0.08) {
       return {
@@ -317,7 +318,10 @@ export function checkLineAgreement(
   req: BetRequest,
   agreementBand: number = 0.02,
 ): { allowed: boolean; reason: string } {
-  const marketProb = req.side === 'yes' ? req.priceCents / 100 : 1 - req.priceCents / 100;
+  // priceCents is always the ASK for our side, so price/100 = P(our side
+  // wins) per the market. modelProb is the same. See checkMinEdge for the
+  // historical bug-fix note about this convention.
+  const marketProb = req.priceCents / 100;
   if (marketProb >= req.modelProb - agreementBand) {
     return {
       allowed: false,
@@ -350,13 +354,23 @@ export function kellyContracts(
   return Math.max(1, Math.round(recommendedDollars / costPerContract));
 }
 
-/** Edge check — ensures the model's prob gives the required min edge over market. */
+/** Edge check — ensures the model's prob gives the required min edge over market.
+ *
+ *  IMPORTANT: `priceCents` is always the ASK for OUR side (the YES contract
+ *  if we're buying YES, the NO contract if we're buying NO). So the market's
+ *  implied probability of OUR side winning is always `priceCents / 100`,
+ *  regardless of which side we bought. `modelProb` is also "P(our side wins)".
+ *  Edge = both expressed in the same convention.
+ *
+ *  Pre-2026-04-30 the formula was `1 - priceCents/100` for NO bets, which
+ *  flipped the semantic and inflated the apparent edge by ~(1 - 2×marketProb)
+ *  on every NO bet. That bug let through NO bets that should have been
+ *  rejected by the 5% min-edge floor. */
 export function checkMinEdge(
   req: BetRequest,
   cfg: SafetyConfig,
 ): { allowed: boolean; reason: string; edge: number } {
-  // Kalshi YES price in dollars = implied market probability
-  const marketProb = req.side === 'yes' ? req.priceCents / 100 : 1 - req.priceCents / 100;
+  const marketProb = req.priceCents / 100;
   const edge = req.modelProb - marketProb;
   if (edge < cfg.HARD_MIN_EDGE) {
     return {

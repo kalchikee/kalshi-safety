@@ -48,7 +48,7 @@ interface MLBGame {
 
 /** Extract the MLB Kalshi date code (e.g. "26APR30") from a ticker like
  *  "KXMLBGAME-26APR302005NYYTEX-NYY" and return "2026-04-30" ISO. */
-function mlbIsoDateFromTicker(ticker: string): string | null {
+export function mlbIsoDateFromTicker(ticker: string): string | null {
   const m = ticker.match(/KXMLBGAME-(\d\d)([A-Z]{3})(\d\d)/);
   if (!m) return null;
   const months: Record<string, string> = {
@@ -85,11 +85,42 @@ async function fetchMlbSchedule(isoDate: string): Promise<Map<string, MLBGame>> 
   return out;
 }
 
-/** Extract team codes from the MLB ticker tail (e.g. ...PHIATL-ATL → PHI/ATL). */
-function mlbTeamsFromTicker(ticker: string): { away: string; home: string } | null {
-  const m = ticker.match(/-\d{2}[A-Z]{3}\d{2,6}([A-Z]{2,3})([A-Z]{2,3})-/);
+/** Kalshi MLB team codes — superset of the MLB Stats API codes. Used to
+ *  validate ticker parses since 2-letter codes (KC, SD, SF, TB) make a
+ *  pure-regex split ambiguous: greedy regex on "KCCWS" yields "KCC@WS"
+ *  not "KC@CWS". Validating against this set catches the right split. */
+const MLB_KALSHI_CODES = new Set([
+  'ARI', 'ATL', 'BAL', 'BOS', 'CHC', 'CWS', 'CIN', 'CLE', 'COL', 'DET',
+  'HOU', 'KC',  'LAA', 'LAD', 'MIA', 'MIL', 'MIN', 'NYM', 'NYY', 'OAK',
+  'PHI', 'PIT', 'SD',  'SF',  'SEA', 'STL', 'TB',  'TEX', 'TOR', 'WSH',
+]);
+
+/** Exported for direct testing. */
+export const _testHooks = { MLB_KALSHI_CODES };
+
+/** Extract team codes from the MLB ticker tail. The Kalshi format is:
+ *    KXMLBGAME-{YY}{Mon}{DD}{HHMM}{AWAY}{HOME}-{TEAM}
+ *  e.g. "KXMLBGAME-26APR272210MIALAD-MIA" → MIA + LAD.
+ *
+ *  Tries 2/3-letter splits and returns the first one where BOTH halves are
+ *  recognized Kalshi team codes. Handles 2-letter codes (KC, SD, SF, TB)
+ *  that ambiguous greedy/lazy regex would mis-parse:
+ *    "KCCWS" → 2+3 split = "KC" + "CWS" ✓
+ *    "MIALAD" → 3+3 split = "MIA" + "LAD" ✓ */
+export function mlbTeamsFromTicker(ticker: string): { away: string; home: string } | null {
+  // Match the YYMonDD + HHMM (4-digit time) prefix, then capture the
+  // contiguous letters that follow before the trailing -TEAM segment.
+  const m = ticker.match(/-\d{2}[A-Z]{3}\d{2}\d{4}([A-Z]+)-/);
   if (!m) return null;
-  return { away: m[1]!, home: m[2]! };
+  const teamPair = m[1]!;
+  for (let awayLen = 2; awayLen <= 3; awayLen++) {
+    const away = teamPair.slice(0, awayLen);
+    const home = teamPair.slice(awayLen);
+    if (MLB_KALSHI_CODES.has(away) && MLB_KALSHI_CODES.has(home)) {
+      return { away, home };
+    }
+  }
+  return null;
 }
 
 const checkMLB: InactiveChecker = async (bet) => {

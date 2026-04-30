@@ -109,10 +109,24 @@ describe('checkMinEdge', () => {
     expect(r.edge).toBeCloseTo(0.10, 2);
   });
 
-  it('handles NO bets correctly (implied prob is 1 - price)', () => {
+  it('handles NO bets with the same convention as YES (priceCents = ask of OUR side)', () => {
     const cfg = loadConfig();
-    // Bet NO at 30¢ → market implies 70% NO → need modelProb > 0.75 to have 5% edge
+    // priceCents = 30 means we pay 30¢ for our NO contract → market implies
+    // P(NO wins) = 30%. modelProb 0.80 → edge = 0.80 - 0.30 = 0.50.
     const r = checkMinEdge({ ...baseReq, side: 'no', priceCents: 30, modelProb: 0.80 }, cfg);
-    expect(r.allowed).toBe(true); // 80% model vs 70% market = 10% edge
+    expect(r.allowed).toBe(true);
+    expect(r.edge).toBeCloseTo(0.50, 2);
+  });
+
+  it('rejects a NO bet where the market already prices our side higher than the model', () => {
+    // Regression test for the pre-2026-04-30 bug: marketProb was computed
+    // as `1 - priceCents/100` for NO bets, which inflated the apparent
+    // edge by 1 - 2×marketProb on every NO trade. With the bug, this
+    // case computed edge = 0.60 - (1 - 0.60) = 0.20 and ALLOWED. With
+    // the fix, edge = 0.60 - 0.60 = 0 and it's correctly REJECTED.
+    const cfg = loadConfig();
+    const r = checkMinEdge({ ...baseReq, side: 'no', priceCents: 60, modelProb: 0.60 }, cfg);
+    expect(r.allowed).toBe(false);
+    expect(r.edge).toBeCloseTo(0, 2);
   });
 });
