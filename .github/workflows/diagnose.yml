@@ -1,0 +1,41 @@
+name: Paper-state diagnostic dump
+
+# Loads the latest cached safety-state and prints a per-bet ledger.
+# Use whenever you want a snapshot of what's been placed, settled, and
+# how the model is doing. Pure read — no state mutation.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Get today's date (ET)
+        id: date
+        run: echo "date=$(TZ='America/New_York' date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore safety-state (latest)
+        uses: actions/cache/restore@v4
+        with:
+          path: safety-state
+          key: kalshi-safety-state-${{ steps.date.outputs.date }}
+          restore-keys: |
+            kalshi-safety-state-
+
+      - name: Dump diagnostic ledger
+        run: node --loader ts-node/esm src/service/actions/diagnose.ts
