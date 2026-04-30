@@ -7,7 +7,7 @@ import 'dotenv/config';
 import { getMarket, sellPosition, PAPER_TRADING } from '../kalshiApi.js';
 import { triggerPaperStopLoss } from '../../stopLoss.js';
 import { triggerPaperTakeProfit } from '../../takeProfit.js';
-import { loadPaperState } from '../../paperTradeGate.js';
+import { loadPaperState, setPaperBetClosingProb } from '../../paperTradeGate.js';
 import { getOpenLiveBets, updateLiveBet } from '../liveBets.js';
 import { HARD_LIMITS } from '../../config.js';
 import { sendStopLossAlert } from '../discord.js';
@@ -43,6 +43,19 @@ async function scanPaperStopLosses(): Promise<void> {
       try {
         const market = await getMarket(bet.ticker);
         if (!market) continue;
+
+        // CLV tracking: record the current market mid for OUR side. The
+        // last value written here before the market settles = our closing
+        // line. (Once the market is finalized, this stops getting updated
+        // because the bet transitions to settledAt and the setter ignores
+        // settled bets.)
+        const ourBid = bet.side === 'yes' ? market.yes_bid : market.no_bid;
+        const ourAsk = bet.side === 'yes' ? market.yes_ask : market.no_ask;
+        if (ourBid > 0 && ourAsk > 0 && ourAsk < 100) {
+          const midProb = (ourBid + ourAsk) / 2 / 100;
+          setPaperBetClosingProb(sport, bet.ticker, midProb);
+        }
+
         // triggerPaperStopLoss and triggerPaperTakeProfit both take the YES-side
         // price and internally invert for NO bets. Only one fires per tick: if
         // stop-loss settles the bet, the take-profit call finds no open bet.
@@ -65,6 +78,15 @@ async function scanLiveStopLosses(): Promise<void> {
       if (!market) continue;
       const currentBid = bet.side === 'yes' ? market.yes_bid : market.no_bid;
       if (!currentBid || currentBid <= 0) continue;
+
+      // CLV tracking: record current mid for OUR side onto the live bet.
+      const ourAsk = bet.side === 'yes' ? market.yes_ask : market.no_ask;
+      if (ourAsk > 0 && ourAsk < 100) {
+        const midProb = (currentBid + ourAsk) / 2 / 100;
+        if (Number.isFinite(midProb) && midProb > 0 && midProb < 1) {
+          updateLiveBet(bet.ticker, { closingMarketProb: midProb });
+        }
+      }
 
       const currentValue = currentBid * bet.contracts / 100;
       const pctChange = (currentValue - bet.costBasisDollars) / bet.costBasisDollars;

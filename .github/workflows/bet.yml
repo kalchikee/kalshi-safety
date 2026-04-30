@@ -76,6 +76,12 @@ jobs:
           # min-edge checks — we want to track the model's calibration even
           # when Kalshi has already priced an outcome at or above our number.
           KALSHI_HIGH_CONVICTION_THRESHOLD: '0.70'
+          # Sports whose declared probabilities aren't trustworthy enough
+          # to size up on. Picks still place, but at floor size only.
+          # Diagnostic on 2026-04-30 showed MLB calibration is broken (76%
+          # picks hitting at 50%) — clamping until the upstream calibrator
+          # is fixed or per-sport calibration auto-adjusts the floor.
+          KALSHI_DEMOTED_SPORTS: 'MLB'
           BET_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: node --loader ts-node/esm src/service/actions/bet.ts ${{ github.event.inputs.date || steps.date.outputs.date }}
 

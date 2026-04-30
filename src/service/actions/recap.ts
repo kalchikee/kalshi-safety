@@ -4,7 +4,7 @@
 
 import 'dotenv/config';
 import { getMarket, PAPER_TRADING } from '../kalshiApi.js';
-import { loadPaperState, settlePaperBet, setPaperBetClosingProb } from '../../paperTradeGate.js';
+import { loadPaperState, settlePaperBet } from '../../paperTradeGate.js';
 import { DRY_RUN_SPORTS } from '../../allSports.js';
 import { loadLiveState, saveLiveState } from '../liveBets.js';
 import { sendRecap, type RecapBet } from '../discord.js';
@@ -41,22 +41,6 @@ function computeAggregateClv(): ClvStats {
     positiveCount: pos,
     negativeCount: neg,
   };
-}
-
-/** Compute the closing market probability for OUR side of the bet from a
- *  freshly-fetched market snapshot. Returns mid-price (avg of bid+ask) as
- *  a probability 0..1 for the side we're long. */
-function closingProbForSide(market: { yes_bid: number; yes_ask: number; no_bid: number; no_ask: number }, side: 'yes' | 'no'): number | undefined {
-  if (side === 'yes') {
-    if (!market.yes_bid && !market.yes_ask) return undefined;
-    const mid = (market.yes_bid + market.yes_ask) / 2;
-    if (mid <= 0 || mid >= 100) return undefined;
-    return mid / 100;
-  }
-  if (!market.no_bid && !market.no_ask) return undefined;
-  const mid = (market.no_bid + market.no_ask) / 2;
-  if (mid <= 0 || mid >= 100) return undefined;
-  return mid / 100;
 }
 
 function log(level: 'info' | 'warn' | 'error', msg: string, extra: Record<string, unknown> = {}): void {
@@ -106,11 +90,11 @@ async function settleOpenPaperBets(date: string): Promise<RecapBet[]> {
             (market.result === 'yes' && bet.side === 'yes') ||
             (market.result === 'no' && bet.side === 'no');
           settlePaperBet(sport, bet.ticker, won ? 'win' : 'loss');
-          // CLV: record the market's mid for our side at settle time
-          const closingProb = closingProbForSide(market, bet.side);
-          if (closingProb !== undefined) {
-            setPaperBetClosingProb(sport, bet.ticker, closingProb);
-          }
+          // CLV is now captured by monitor.ts on every tick — by the
+          // time we settle here, the bet's closingMarketProb already
+          // holds the last pre-settlement mid (or is empty if the
+          // monitor never observed this market — e.g. a market that
+          // settled before any monitor shift could see it).
           const entry = bet.priceCents * bet.contracts / 100;
           const payout = won ? bet.contracts : 0;
           out.push({
@@ -157,8 +141,8 @@ async function settleOpenLiveBets(date: string): Promise<RecapBet[]> {
         bet.settledAt = new Date().toISOString();
         bet.outcome = won ? 'win' : 'loss';
         bet.pnlDollars = pnl;
-        const closingProb = closingProbForSide(market, bet.side);
-        if (closingProb !== undefined) bet.closingMarketProb = closingProb;
+        // CLV captured by monitor pre-settlement; if it ran during this
+        // bet's lifetime, bet.closingMarketProb is already populated.
         out.push({
           sport: bet.sport,
           matchup: bet.ticker,

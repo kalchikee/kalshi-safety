@@ -29,11 +29,12 @@ export interface PaperBetRecord {
   outcome?: 'win' | 'loss' | 'push';
   /** P&L in dollars (positive = profit, negative = loss) */
   pnlDollars?: number;
-  /** Closing-line value tracking (populated at settle time):
-   *  closing market mid-price for OUR side, expressed as a probability
-   *  (0-1). CLV (in pp) = closingMarketProb - (priceCents/100). Positive
-   *  CLV across many bets is the strongest signal that the model has
-   *  real edge over Kalshi pricing. */
+  /** Closing-line value tracking. Set by the monitor on each tick to the
+   *  CURRENT market mid-price for OUR side (probability 0-1). When the
+   *  market settles, whatever value is currently here = our last known
+   *  pre-settlement mid = the closing line. CLV (pp) = closingMarketProb -
+   *  (priceCents/100). Positive average CLV across many bets is the
+   *  strongest signal that the model has real edge over Kalshi pricing. */
   closingMarketProb?: number;
 }
 
@@ -151,18 +152,25 @@ export function settlePaperBet(
   return bet;
 }
 
-/** Set the closing-market probability for the most recently settled paper
- *  bet on a ticker. Used by the recap to record CLV after settlement. */
+/** Set the latest observed market probability for the most recent OPEN paper
+ *  bet on a ticker. Called by the monitor on every tick (every 2 min during
+ *  game hours) so that whatever value is here when the market settles =
+ *  the last pre-settlement mid = the closing line for CLV purposes.
+ *
+ *  Targets OPEN bets only. After settlement the market price collapses to
+ *  100¢ or 0¢ which is degenerate; we don't want to overwrite the legit
+ *  pre-settlement value with that. */
 export function setPaperBetClosingProb(
   sport: string,
   ticker: string,
   closingProb: number,
   dir = DEFAULT_DIR,
 ): void {
+  if (!Number.isFinite(closingProb) || closingProb <= 0 || closingProb >= 1) return;
   const state = loadPaperState(sport, dir);
-  // Find most recent settled bet on this ticker
+  // Find most recent OPEN bet on this ticker
   const idx = [...state.bets].reverse().findIndex(
-    (b) => b.ticker === ticker && b.settledAt,
+    (b) => b.ticker === ticker && !b.settledAt,
   );
   if (idx < 0) return;
   const realIdx = state.bets.length - 1 - idx;

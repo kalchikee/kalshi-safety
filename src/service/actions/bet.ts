@@ -53,6 +53,19 @@ const HIGH_CONVICTION_THRESHOLD = parseFloat(
   process.env.KALSHI_HIGH_CONVICTION_THRESHOLD ?? '0.70',
 );
 
+// Demoted sports: these have a known-broken probability calibration, so
+// Kelly's edge math is unreliable on their picks. We still place the bets
+// (to gather calibration data), but we clamp position size to the floor
+// regardless of what Kelly says — preventing big losses from a misled
+// Kelly while we wait for the model to be fixed or per-sport
+// calibration (calibration.ts) to lift the floor automatically.
+//
+// Format: comma-separated DryRunSport codes. e.g. "MLB,NBA".
+const DEMOTED_SPORTS = new Set(
+  (process.env.KALSHI_DEMOTED_SPORTS ?? 'MLB')
+    .split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),
+);
+
 function log(level: 'info' | 'warn' | 'error', msg: string, extra: Record<string, unknown> = {}): void {
   const line = JSON.stringify({ level, msg, ...extra, ts: new Date().toISOString() });
   // eslint-disable-next-line no-console
@@ -281,6 +294,7 @@ export async function runBetAction(date: string): Promise<void> {
       // Kelly-criterion sizing — scales contracts with edge, capped at quarter-Kelly.
       // For high-conviction picks, Kelly's edge check is bypassed: we fall
       // back to BET_SIZE_DOLLARS as a minimum so the pick gets placed.
+      const isDemoted = DEMOTED_SPORTS.has(file.sport);
       let contracts = kellyContracts(
         resolved.entryPriceCents,
         pick.modelProb,
@@ -301,6 +315,25 @@ export async function runBetAction(date: string): Promise<void> {
             reason: 'Kelly returned 0 (no positive edge at current price)',
           });
           continue;
+        }
+      }
+      // Demoted sport — clamp to floor size regardless of Kelly. The
+      // probabilities the model reports are not trustworthy enough to
+      // size up on. Comparable picks at the supposed 76% confidence
+      // tier hit at 50% over the first 16 bets — Kelly amplifies that
+      // miscalibration in the wrong direction.
+      if (isDemoted) {
+        const floorContracts = Math.max(
+          1,
+          Math.round(BET_SIZE_DOLLARS / (resolved.entryPriceCents / 100)),
+        );
+        if (contracts > floorContracts) {
+          log('info', 'demoted sport — clamping size to floor', {
+            sport: file.sport,
+            kellyContracts: contracts,
+            floorContracts,
+          });
+          contracts = floorContracts;
         }
       }
 
@@ -490,6 +523,7 @@ export async function runBetAction(date: string): Promise<void> {
     }
 
     const isHighConviction = resolved.modelProb >= HIGH_CONVICTION_THRESHOLD;
+    const isDemoted = DEMOTED_SPORTS.has(sport);
     let contracts = kellyContracts(
       resolved.entryPriceCents,
       resolved.modelProb,
@@ -507,6 +541,13 @@ export async function runBetAction(date: string): Promise<void> {
         _skipped.push({ sport, matchup, reason: 'Kelly returned 0 (no edge)' });
         return;
       }
+    }
+    if (isDemoted) {
+      const floorContracts = Math.max(
+        1,
+        Math.round(BET_SIZE_DOLLARS / (resolved.entryPriceCents / 100)),
+      );
+      if (contracts > floorContracts) contracts = floorContracts;
     }
 
     const req: BetRequest = {
