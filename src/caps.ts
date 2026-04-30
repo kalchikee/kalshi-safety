@@ -236,6 +236,52 @@ export function checkLiquidity(
   return { allowed: true, reason: `liquid (spread ${(spreadPct * 100).toFixed(1)}%, vol ${volume ?? '?'})` };
 }
 
+/** Fee-death-zone filter — Kalshi's taker fee is `7¢ × C × (1−C)`,
+ *  which hits hardest at the extremes of the price range:
+ *
+ *    At  5¢: fee ≈ 0.33¢ → 6.7% of stake → need 12% true prob to break even
+ *    At 50¢: fee ≈ 1.75¢ → 3.5% of stake
+ *    At 95¢: fee ≈ 0.33¢ → 0.35% of stake but only 5¢ upside
+ *
+ *  The two pathological ends:
+ *
+ *    Cheap longshots (< ~15¢ taker): fees eat the structural edge.
+ *      Northlake Labs went 0–32 publicly partly because they were
+ *      buying $0.05 contracts where the fee drag was 6.65%.
+ *
+ *    Expensive favorites (> ~85¢) without strong edge: the bet still
+ *      makes money on average but only ~5¢ upside per contract, and
+ *      a single loss erases ~80¢. Risk-of-ruin is bad relative to EV.
+ *
+ *  The rule: skip bets at `priceCents < 15`. For `priceCents > 85`,
+ *  require model edge > 8pp (well above the standard 5% min-edge).
+ *
+ *  Bypassed for high-conviction picks via the existing override path —
+ *  the user has explicitly opted into testing those calibrations even
+ *  in unfavorable price regions. */
+export function checkFeeDeathZone(
+  req: BetRequest,
+): { allowed: boolean; reason: string } {
+  const price = req.priceCents;
+  if (price < 15) {
+    return {
+      allowed: false,
+      reason: `entry ${price}¢ in fee death zone (longshot: ~${(7 * price * (100 - price) / 100 / 100).toFixed(2)}¢ fee = ${(7 * (100 - price) / 100).toFixed(1)}% drag)`,
+    };
+  }
+  if (price > 85) {
+    const marketProb = req.side === 'yes' ? price / 100 : 1 - price / 100;
+    const edge = req.modelProb - marketProb;
+    if (edge < 0.08) {
+      return {
+        allowed: false,
+        reason: `entry ${price}¢ favorite-zone with edge ${(edge * 100).toFixed(1)}% < 8pp (5¢ upside per contract; not enough cushion)`,
+      };
+    }
+  }
+  return { allowed: true, reason: `${price}¢ outside fee death zone` };
+}
+
 /** Vegas-disagreement filter — if our model and Vegas (typically the most
  *  efficient market) disagree by more than `maxDisagreement` percentage
  *  points, skip the bet. Vegas has billions in capital pricing these

@@ -82,6 +82,12 @@ jobs:
           # picks hitting at 50%) — clamping until the upstream calibrator
           # is fixed or per-sport calibration auto-adjusts the floor.
           KALSHI_DEMOTED_SPORTS: 'MLB'
+          # Maker-mode entry: subtract this many cents from the ask to
+          # simulate posting a limit order one tick inside the spread.
+          # Saves taker fees + spread cost. Live mode would post a real
+          # limit + poll for fill; paper mode assumes the market trades
+          # through. Set to 0 to disable (always take the ask).
+          KALSHI_MAKER_OFFSET_CENTS: '1'
           BET_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: node --loader ts-node/esm src/service/actions/bet.ts ${{ github.event.inputs.date || steps.date.outputs.date }}
 

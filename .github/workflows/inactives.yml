@@ -1,0 +1,55 @@
+name: Late-news scan (lineup / pitcher / scratch alerts)
+
+# Polls each open bet's sport-specific late-info source for changes the
+# market may not have repriced yet. Public research (4AM Club et al.)
+# identifies this as the largest documented retail edge on Kalshi sports.
+#
+# First sport wired: MLB (uses the free MLB Stats API). Adding NBA / NHL
+# is mechanical — write the per-sport checker in src/service/inactives.ts
+# and register it in INACTIVE_CHECKERS.
+#
+# Schedule: every 30 min during 16:00 UTC – 03:00 UTC (12 PM – 11 PM ET),
+# which covers MLB pre-game (typically 4-7 PM ET first pitches), NBA
+# pre-tip (7-10 PM ET), NHL puck-drop (7-10 PM ET). 30-min cadence
+# is sufficient — late-news flow is not a sub-minute race for this bot.
+
+on:
+  schedule:
+    - cron: '*/30 16-23 * * *'
+    - cron: '*/30 0-3 * * *'
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Get today's date (ET)
+        id: date
+        run: echo "date=$(TZ='America/New_York' date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore safety-state
+        uses: actions/cache/restore@v4
+        with:
+          path: safety-state
+          key: kalshi-safety-state-${{ steps.date.outputs.date }}
+          restore-keys: |
+            kalshi-safety-state-
+
+      - name: Scan late news
+        env:
+          KALSHI_SAFETY_DISCORD_URL: ${{ secrets.KALSHI_SAFETY_DISCORD_URL }}
+        run: node --loader ts-node/esm src/service/actions/scan-inactives.ts

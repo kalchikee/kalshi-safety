@@ -25,7 +25,7 @@ import { sendSafetyAlert } from '../../alerts.js';
 import {
   checkGameExposure, checkLineAgreement, kellyContracts,
   checkPerSportDaily, checkDailyBetCount, checkLiquidity,
-  checkVegasAgreement, checkWeeklyExposure,
+  checkVegasAgreement, checkWeeklyExposure, checkFeeDeathZone,
 } from '../../caps.js';
 import { loadConfig } from '../../config.js';
 import { getPerSportFloor } from '../../calibration.js';
@@ -52,6 +52,23 @@ const DRY_RUN = process.env.BET_DRY_RUN === 'true';
 const HIGH_CONVICTION_THRESHOLD = parseFloat(
   process.env.KALSHI_HIGH_CONVICTION_THRESHOLD ?? '0.70',
 );
+
+// Maker-mode offset (cents). Instead of taking the ask, we subtract this
+// many cents to enter as a maker (post a limit order one tick inside the
+// spread). On Kalshi this:
+//   - Saves the taker fee (`7¢ × C × (1−C)`, ~1.75¢ at 50¢ = 3.5% RT)
+//   - Earns Liquidity Incentive Program rebates if size is meaningful
+//   - Saves spread cost: 1¢ × N contracts per bet
+//
+// In paper mode we just record the bet at `ask − offset` and assume the
+// market trades through (a 1¢ improvement fills inside ~1 minute on
+// liquid game-winner markets near tip-off; this is a reasonable
+// simulation but slightly optimistic).
+//
+// In LIVE mode we'd post a limit order at this price, poll status every
+// 30s, and fall back to taker after MAKER_TIMEOUT_MIN — that wiring
+// happens later when live keys are activated.
+const MAKER_OFFSET_CENTS = parseInt(process.env.KALSHI_MAKER_OFFSET_CENTS ?? '1', 10);
 
 // Demoted sports: these have a known-broken probability calibration, so
 // Kelly's edge math is unreliable on their picks. We still place the bets
@@ -147,6 +164,13 @@ export async function runBetAction(date: string): Promise<void> {
           continue;
         }
         for (const leg of legs) {
+          // Apply maker-offset to each leg the same way as the main path
+          const legBid = leg.side === 'yes' ? leg.market.yes_bid : leg.market.no_bid;
+          const legAsk = leg.side === 'yes' ? leg.market.yes_ask : leg.market.no_ask;
+          const legMaker = legAsk - MAKER_OFFSET_CENTS;
+          if (legMaker > legBid && legMaker >= 2) {
+            leg.entryPriceCents = legMaker;
+          }
           await processResolvedBet(leg, 'PARLAY', pick, placed, skipped, openPositions, () => todayDollars, (d) => { todayDollars = d; }, mode);
         }
       }
@@ -222,6 +246,20 @@ export async function runBetAction(date: string): Promise<void> {
         continue;
       }
 
+      // Maker-mode pricing: replace the resolver's "ask" entry price with
+      // a maker price one tick inside the spread. We require:
+      //   - the maker price is still above the current bid (otherwise we'd
+      //     just be at the back of the bid queue with no fill expectation);
+      //   - the maker price is at least 2¢ (avoid degenerate fills at 1¢).
+      // If the spread is so tight that ask − offset ≤ bid, fall back to
+      // taking the ask (no improvement available).
+      const sideBid = resolved.side === 'yes' ? resolved.market.yes_bid : resolved.market.no_bid;
+      const sideAsk = resolved.side === 'yes' ? resolved.market.yes_ask : resolved.market.no_ask;
+      const proposedMaker = sideAsk - MAKER_OFFSET_CENTS;
+      if (proposedMaker > sideBid && proposedMaker >= 2) {
+        resolved.entryPriceCents = proposedMaker;
+      }
+
       const cfg = loadConfig();
 
       // Daily bet-count cap (before all other checks — even the best bet skipped
@@ -268,6 +306,28 @@ export async function runBetAction(date: string): Promise<void> {
       // tracking these bets even when Kalshi has already priced the outcome
       // at or above our number, so we can measure model calibration.
       const isHighConviction = pick.modelProb >= HIGH_CONVICTION_THRESHOLD;
+
+      // Fee-death-zone filter: skip cheap longshots (<15¢) and skip
+      // expensive favorites (>85¢) without strong edge. Bypassed for
+      // high-conviction picks per the same policy as line-agreement.
+      if (!isHighConviction) {
+        const feeDraft: BetRequest = {
+          sport: file.sport as DryRunSport,
+          ticker: resolved.ticker, side: resolved.side,
+          priceCents: resolved.entryPriceCents,
+          contracts: 1,
+          modelProb: pick.modelProb,
+        };
+        const feeCheck = checkFeeDeathZone(feeDraft);
+        if (!feeCheck.allowed) {
+          skipped.push({
+            sport: file.sport,
+            matchup: `${pick.away} @ ${pick.home}`,
+            reason: feeCheck.reason,
+          });
+          continue;
+        }
+      }
 
       // Pre-bet line-move check — if the Kalshi ask already reflects the model's
       // view, the edge is gone. Skip rather than bet into a priced-in market.
@@ -519,6 +579,18 @@ export async function runBetAction(date: string): Promise<void> {
     });
     if (!lineCheck.allowed) {
       _skipped.push({ sport, matchup, reason: lineCheck.reason });
+      return;
+    }
+
+    // Fee death zone — same rule as main path; we always apply it for
+    // parlay legs (no high-conviction bypass per leg).
+    const feeCheck = checkFeeDeathZone({
+      sport, ticker: resolved.ticker, side: resolved.side,
+      priceCents: resolved.entryPriceCents, contracts: 1,
+      modelProb: resolved.modelProb,
+    });
+    if (!feeCheck.allowed) {
+      _skipped.push({ sport, matchup, reason: feeCheck.reason });
       return;
     }
 
