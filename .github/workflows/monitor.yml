@@ -1,24 +1,22 @@
-name: Position Monitor (1 PM – 4 AM ET, three shifts)
+name: Position Monitor (11 AM – 4 AM ET, four shifts)
 
-# Three back-to-back 5-hour shifts cover live game hours from 1 PM ET
-# through 4 AM ET. Each shift is sized to stay under GitHub Actions' 6h
-# per-job hard cap. Coverage:
+# Four back-to-back shifts now cover continuous game hours from
+# 11 AM ET through 4 AM ET. Each shift is sized to stay under
+# GitHub Actions' 6h per-job hard cap. Coverage:
 #
-#   Afternoon:   1 PM  ET  →  6 PM  ET   (17 UTC start)
-#   Evening:     6 PM  ET  →  11 PM ET   (22 UTC start)
-#   Late-night:  11 PM ET  →  4 AM  ET   (03 UTC start, next UTC day)
+#   Midday:      11 AM ET  →  1 PM  ET   (15 UTC, 2h shift)
+#   Afternoon:   1 PM  ET  →  6 PM  ET   (17 UTC, 5h shift)
+#   Evening:     6 PM  ET  →  11 PM ET   (22 UTC, 5h shift)
+#   Late-night:  11 PM ET  →  4 AM  ET   (03 UTC, 5h shift, next UTC day)
 #
-# The late-night shift catches NBA West Coast and NHL games that finish
-# after 11 PM ET — without it, stop-loss / take-profit on those positions
-# would have to wait for the 5 AM ET recap (often after settlement).
-#
-# Exit timing is now driven by MONITOR_DURATION_MINUTES (fixed 5h per
-# shift) computed inside monitor.ts via Date.now() rather than the old
-# "exit at hour X in ET" check, which had a midnight wraparound bug for
-# the late-night shift (hour 23 >= 4 evaluates true and would have
-# bailed immediately).
+# The midday shift was added on 2026-05-01 after audit revealed a
+# 2-hour CLV-capture gap: bets place at 15 UTC (11 AM ET) but the old
+# afternoon shift didn't start until 17 UTC. Markets that settled in
+# that window (early-day MLB G1, NHL afternoon games) had no
+# closingMarketProb captured → CLV stats permanently zero for those.
 on:
   schedule:
+    - cron: '0 15 * * *'   # 15 UTC = 11 AM ET — midday CLV capture
     - cron: '0 17 * * *'   # 17 UTC = 1 PM ET — afternoon shift
     - cron: '0 22 * * *'   # 22 UTC = 6 PM ET — evening shift
     - cron: '0 3 * * *'    # 03 UTC = 11 PM ET previous day — late-night

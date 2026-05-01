@@ -18,9 +18,12 @@
 // generic — adding NBA / NHL is a matter of writing each sport's own
 // fetch+compare function and registering it in `INACTIVE_CHECKERS`.
 
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 import fetch from 'node-fetch';
 import { loadPaperState, type PaperBetRecord } from '../paperTradeGate.js';
 import { sendSafetyAlert } from '../alerts.js';
+import { atomicWriteFile } from '../atomic.js';
 import { DRY_RUN_SPORTS, type DryRunSport } from '../allSports.js';
 
 interface InactiveAlert {
@@ -178,11 +181,48 @@ const INACTIVE_CHECKERS: Partial<Record<DryRunSport, InactiveChecker>> = {
   // Add NBA / NHL / NCAA here as we wire each sport's API.
 };
 
+// ─── Discord dedup state ──────────────────────────────────────────────────────
+//
+// The scanner runs every 30 min during pre-game windows. If a condition
+// persists (e.g. a starting pitcher stays TBD for two hours), we'd alert
+// every fire — 4+ Discord messages for the same fact. We track which
+// (ticker, changeType) pairs we've already alerted on for the current
+// game-date and suppress repeats.
+
+interface DedupState {
+  alerted: Record<string, string>;  // key = `${ticker}|${changeType}|${gameDate}` → ISO ts of first alert
+}
+
+function dedupPath(stateDir: string): string {
+  return join(stateDir, 'inactives-alerted.json');
+}
+
+function loadDedup(stateDir = 'safety-state'): DedupState {
+  const f = dedupPath(stateDir);
+  if (!existsSync(f)) return { alerted: {} };
+  try {
+    return JSON.parse(readFileSync(f, 'utf8')) as DedupState;
+  } catch {
+    return { alerted: {} };
+  }
+}
+
+function saveDedup(state: DedupState, stateDir = 'safety-state'): void {
+  // Auto-prune entries older than 3 days to keep the file small.
+  const threeDaysAgoMs = Date.now() - 3 * 24 * 3600 * 1000;
+  const filtered: DedupState = { alerted: {} };
+  for (const [key, ts] of Object.entries(state.alerted)) {
+    if (new Date(ts).getTime() >= threeDaysAgoMs) filtered.alerted[key] = ts;
+  }
+  atomicWriteFile(dedupPath(stateDir), JSON.stringify(filtered, null, 2));
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 export async function scanInactives(): Promise<{ checked: number; alerts: InactiveAlert[] }> {
   let checked = 0;
   const alerts: InactiveAlert[] = [];
+  const dedup = loadDedup();
   for (const sport of DRY_RUN_SPORTS) {
     const checker = INACTIVE_CHECKERS[sport];
     if (!checker) continue;
@@ -193,6 +233,13 @@ export async function scanInactives(): Promise<{ checked: number; alerts: Inacti
       try {
         const alert = await checker(bet);
         if (alert) {
+          // Dedup key: same condition on same ticker shouldn't spam.
+          // Game-date is included so a recurring matchup on a later day
+          // gets a fresh alert.
+          const gameDate = mlbIsoDateFromTicker(alert.ticker) ?? alert.ticker.slice(0, 16);
+          const dedupKey = `${alert.ticker}|${alert.changeType}|${gameDate}`;
+          if (dedup.alerted[dedupKey]) continue;  // already alerted
+          dedup.alerted[dedupKey] = new Date().toISOString();
           alerts.push(alert);
           await sendSafetyAlert({
             title: `Late-news alert: ${alert.changeType.replace(/_/g, ' ')} on ${alert.sport}`,
@@ -210,5 +257,7 @@ export async function scanInactives(): Promise<{ checked: number; alerts: Inacti
       }
     }
   }
+  // Persist dedup state (any new alerts) and auto-prune entries > 3d old.
+  if (alerts.length > 0) saveDedup(dedup);
   return { checked, alerts };
 }

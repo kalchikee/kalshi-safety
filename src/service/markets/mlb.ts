@@ -87,7 +87,12 @@ export const mlbResolver: SportResolver = {
       if (x.entryPriceCents !== y.entryPriceCents) return x.entryPriceCents - y.entryPriceCents;
       const xMatch = x.ticker.toUpperCase().endsWith(`-${k(pick.pickedTeam)}`) ? 0 : 1;
       const yMatch = y.ticker.toUpperCase().endsWith(`-${k(pick.pickedTeam)}`) ? 0 : 1;
-      return xMatch - yMatch;
+      if (xMatch !== yMatch) return xMatch - yMatch;
+      // Final deterministic tiebreaker: lexicographic ticker order. Map
+      // iteration order depends on Kalshi's API response order, so
+      // without this final compare two equally-good candidates would be
+      // resolved non-deterministically across runs.
+      return x.ticker.localeCompare(y.ticker);
     });
     return candidates[0]!;
   },

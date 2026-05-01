@@ -37,10 +37,29 @@ export function getPerSportFloor(sport: DryRunSport, stateDir?: string): number 
  *  EVEN BELOW the auto-adjustment sample threshold. The floor is only
  *  lifted when settledBets >= MIN_SAMPLE (50), but the displayed numbers
  *  are real from the first settlement onward — useful for early detection
- *  of model miscalibration before 50 bets accumulate. */
+ *  of model miscalibration before 50 bets accumulate.
+ *
+ *  CRITICAL: excludes stop-loss exits from the W/L tally. A stop-loss
+ *  closes a bet at -20% of cost BEFORE the underlying market settles —
+ *  which means we never observe the true outcome. Counting those as
+ *  model "losses" inflates miscalibration when the model isn't actually
+ *  overconfident, just whipsawed by mid-game variance. We detect a
+ *  stop-loss by `outcome === 'loss' && pnl > -fullCostBasis` (a true
+ *  settlement loss has pnl exactly = -fullCostBasis). */
 export function computeCalibration(sport: DryRunSport, stateDir?: string): CalibrationStats {
   const state = loadPaperState(sport, stateDir);
-  const settled = state.bets.filter((b) => b.settledAt && (b.outcome === 'win' || b.outcome === 'loss'));
+  const settled = state.bets.filter((b) => {
+    if (!b.settledAt) return false;
+    if (b.outcome !== 'win' && b.outcome !== 'loss') return false;
+    // Stop-loss detection: true settlement loss has pnl ≈ -fullCostBasis;
+    // a stop-loss exit has a less-negative pnl. Tolerance = 0.5¢.
+    if (b.outcome === 'loss') {
+      const fullLoss = -(b.priceCents * b.contracts) / 100;
+      const stopped = (b.pnlDollars ?? fullLoss) > fullLoss + 0.005;
+      if (stopped) return false;
+    }
+    return true;
+  });
 
   // Always compute the raw stats — they're informative at any sample size.
   // Avoid div-by-zero on a sport with no settlements yet.

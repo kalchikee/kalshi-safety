@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { atomicWriteFile } from './atomic.js';
 import type { BetRequest } from './types.js';
@@ -76,8 +76,25 @@ export function loadPaperState(sport: string, dir = DEFAULT_DIR): PaperState {
       raw.bets = [];
     }
     return raw as PaperState;
-  } catch {
-    // Corrupted state → reset conservatively (start paper clock from NOW)
+  } catch (err) {
+    // CRITICAL: a malformed JSON parse used to silently overwrite the file
+    // with a fresh state, which RESET the 30-day paper-trade clock. That's
+    // sacred — losing it means the sport gets a 30-day extension before
+    // qualifying for live mode. Now we preserve the corrupt file under a
+    // timestamped backup name so the state can be recovered manually,
+    // and we log loud (caller can route to Discord). The fresh state
+    // returned still uses now() as paperStartIso, but the corrupt file
+    // is preserved for forensics.
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const backup = `${path}.corrupt-${ts}`;
+    try { renameSync(path, backup); } catch { /* best-effort */ }
+    // eslint-disable-next-line no-console
+    console.error(JSON.stringify({
+      level: 'error',
+      msg: 'CORRUPT paper state — preserved as backup; clock reset to now',
+      sport, path, backup, err: String(err),
+      ts: new Date().toISOString(),
+    }));
     const reset: PaperState = {
       sport,
       paperStartIso: new Date().toISOString(),

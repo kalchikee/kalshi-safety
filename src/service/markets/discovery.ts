@@ -100,7 +100,9 @@ export function makeLenientResolver(sport: string, normalizeTeam?: (t: string) =
       if (x.entryPriceCents !== y.entryPriceCents) return x.entryPriceCents - y.entryPriceCents;
       const xMatch = x.ticker.toUpperCase().endsWith(`-${norm(pick.pickedTeam)}`) ? 0 : 1;
       const yMatch = y.ticker.toUpperCase().endsWith(`-${norm(pick.pickedTeam)}`) ? 0 : 1;
-      return xMatch - yMatch;
+      if (xMatch !== yMatch) return xMatch - yMatch;
+      // Deterministic final tiebreaker — see mlb.ts for rationale.
+      return x.ticker.localeCompare(y.ticker);
     });
     return candidates[0]!;
   }

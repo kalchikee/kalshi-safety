@@ -16,6 +16,13 @@ name: Place Bets (11 AM ET / 10 AM CT)
 #  NHL           12:00
 #  NCAAM/W       13:00
 #  MLS           14:00
+# Concurrency: only one bet job at a time. Prevents the read-modify-write
+# race on safety-state files when a manual workflow_dispatch overlaps the
+# scheduled run (or vice versa). New runs queue rather than clobber.
+concurrency:
+  group: kalshi-safety-bet
+  cancel-in-progress: false
+
 on:
   schedule:
     - cron: '0 15 * * *'    # 15:00 UTC = 11:00 AM ET (EDT)
