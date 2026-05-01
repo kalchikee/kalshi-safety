@@ -5,7 +5,7 @@
 import 'dotenv/config';
 import { loadPaperState } from '../../paperTradeGate.js';
 import { DRY_RUN_SPORTS } from '../../allSports.js';
-import { computeAllCalibration, CALIBRATION_SIGNIFICANT_SAMPLES } from '../../calibration.js';
+import { computeAllCalibration, computeAllCalibrationByBucket, CALIBRATION_SIGNIFICANT_SAMPLES } from '../../calibration.js';
 
 interface Row {
   sport: string;
@@ -143,4 +143,23 @@ for (const c of calStats) {
   console.log(
     `${c.sport.padEnd(8)} ${c.settledBets.toString().padStart(3)}   ${declared.padStart(7)}  ${actual.padStart(6)}  ${miscal.padStart(7)}   ${floor.padStart(4)}   ${verdict}`,
   );
+}
+
+// Per-sport, per-bucket calibration. Reveals WHERE in the prob range the
+// model fails — a sport at +35pp overall miscal might be fine on 65-70%
+// picks and catastrophic on 80-85% picks. The bucketed view lets us
+// surgically demote slices of a sport without killing the whole thing.
+console.log('');
+console.log('=== PER-SPORT × PER-BUCKET CALIBRATION ===');
+console.log('sport    bucket    n   declared  actual   miscal');
+const bucketed = computeAllCalibrationByBucket();
+for (const row of bucketed) {
+  for (const b of row.buckets) {
+    const declared = `${(b.avgDeclaredProb * 100).toFixed(1)}%`;
+    const actual   = `${(b.actualHitRate * 100).toFixed(1)}%`;
+    const miscal   = `${b.miscalibrationPP >= 0 ? '+' : ''}${(b.miscalibrationPP * 100).toFixed(1)}pp`;
+    console.log(
+      `${row.sport.padEnd(8)} ${b.bucketLabel.padEnd(8)} ${b.settledBets.toString().padStart(3)}   ${declared.padStart(7)}  ${actual.padStart(6)}  ${miscal.padStart(7)}`,
+    );
+  }
 }

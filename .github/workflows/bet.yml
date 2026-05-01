@@ -95,6 +95,12 @@ jobs:
           # limit + poll for fill; paper mode assumes the market trades
           # through. Set to 0 to disable (always take the ask).
           KALSHI_MAKER_OFFSET_CENTS: '1'
+          # ESPN consensus filter — skip picks where ESPN's predictor
+          # disagrees with our model by more than this many pp. Set to
+          # a negative number to disable. ESPN's free scoreboard API is
+          # used; gracefully no-ops if ESPN didn't file a prediction
+          # for the matchup or the API errors out.
+          KALSHI_ESPN_CONSENSUS_PP: '15'
           BET_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: node --loader ts-node/esm src/service/actions/bet.ts ${{ github.event.inputs.date || steps.date.outputs.date }}
 

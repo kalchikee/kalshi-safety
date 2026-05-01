@@ -30,6 +30,8 @@ import {
 import { loadConfig } from '../../config.js';
 import { getPerSportFloor } from '../../calibration.js';
 import { isLiveAllowed } from '../../liveActivation.js';
+import { evaluateAndSuspend, isSuspended } from '../../suspension.js';
+import { fetchEspnScoreboard, espnProbForPick, type EspnScoreboard } from '../external/espn.js';
 
 const BET_SIZE_DOLLARS = parseFloat(process.env.KALSHI_BET_SIZE ?? '1');
 const DEFAULT_MIN_PROB = parseFloat(process.env.KALSHI_MIN_PROB ?? '0.65');
@@ -52,6 +54,13 @@ const DRY_RUN = process.env.BET_DRY_RUN === 'true';
 const HIGH_CONVICTION_THRESHOLD = parseFloat(
   process.env.KALSHI_HIGH_CONVICTION_THRESHOLD ?? '0.70',
 );
+
+// ESPN consensus filter — if our model and ESPN's predictor disagree on
+// a pick by more than this many percentage points, skip. ESPN's free
+// scoreboard API exposes win-probability for major sports; treating it
+// as a second opinion catches obvious solo-model false positives.
+// A negative value disables the filter.
+const ESPN_CONSENSUS_PP = parseFloat(process.env.KALSHI_ESPN_CONSENSUS_PP ?? '15');
 
 // Maker-mode offset (cents). Instead of taking the ask, we subtract this
 // many cents to enter as a maker (post a limit order one tick inside the
@@ -149,7 +158,32 @@ export async function runBetAction(date: string): Promise<void> {
     currentValueDollars: b.costBasisDollars,
   }));
 
+  // Re-evaluate auto-suspend BEFORE the bet loop so any newly-suspended
+  // sport stops placing bets immediately on this run. Old suspensions
+  // persist in safety-state.
+  try {
+    const newlySuspended = await evaluateAndSuspend(DRY_RUN_SPORTS);
+    if (newlySuspended.length > 0) {
+      log('warn', 'sports newly auto-suspended', { sports: newlySuspended });
+    }
+  } catch (err) {
+    log('error', 'auto-suspend evaluation failed (continuing)', { err: String(err) });
+  }
+
   for (const file of files) {
+    // Block any picks from auto-suspended sports outright. Manual
+    // override via safety-state/suspended-sports.json `manualOverrides`.
+    if (isSuspended(file.sport as DryRunSport)) {
+      for (const pick of file.picks) {
+        skipped.push({
+          sport: file.sport,
+          matchup: `${pick.away} @ ${pick.home}`,
+          reason: `${file.sport} auto-suspended (sustained miscalibration). Edit safety-state/suspended-sports.json to unlock.`,
+        });
+      }
+      continue;
+    }
+
     // Parlay gets special-cased — composite pick expands into individual legs,
     // each resolved by its explicit Kalshi ticker (no per-sport scan needed).
     if (file.sport === 'PARLAY') {
@@ -188,6 +222,22 @@ export async function runBetAction(date: string): Promise<void> {
         });
       }
       continue;
+    }
+
+    // Pre-fetch ESPN scoreboard for this sport once per file. Cheap
+    // (one HTTP request); used as a per-pick consensus filter below.
+    let espnBoard: EspnScoreboard | null = null;
+    if (ESPN_CONSENSUS_PP >= 0) {
+      try {
+        espnBoard = await fetchEspnScoreboard(file.sport as DryRunSport, file.date);
+        if (!espnBoard.ok) {
+          log('warn', 'ESPN scoreboard unreachable — skipping consensus filter for this sport this run', { sport: file.sport });
+          espnBoard = null;
+        }
+      } catch (err) {
+        log('warn', 'ESPN scoreboard threw — continuing without consensus', { sport: file.sport, err: String(err) });
+        espnBoard = null;
+      }
     }
 
     let markets;
@@ -299,6 +349,25 @@ export async function runBetAction(date: string): Promise<void> {
           reason: vegasCheck.reason,
         });
         continue;
+      }
+
+      // ESPN consensus filter: if our model and ESPN's predictor disagree
+      // by more than KALSHI_ESPN_CONSENSUS_PP, skip. Only fires when ESPN
+      // has filed a prediction for this matchup AND the scoreboard fetch
+      // succeeded; otherwise we degrade gracefully (no skip).
+      if (espnBoard && ESPN_CONSENSUS_PP >= 0) {
+        const espnP = espnProbForPick(espnBoard, pick.away, pick.home, pick.pickedSide);
+        if (espnP !== undefined) {
+          const diffPp = Math.abs(pick.modelProb - espnP) * 100;
+          if (diffPp > ESPN_CONSENSUS_PP) {
+            skipped.push({
+              sport: file.sport,
+              matchup: `${pick.away} @ ${pick.home}`,
+              reason: `model ${(pick.modelProb * 100).toFixed(1)}% diverges ${diffPp.toFixed(1)}pp from ESPN ${(espnP * 100).toFixed(1)}% (>${ESPN_CONSENSUS_PP}pp limit)`,
+            });
+            continue;
+          }
+        }
       }
 
       // High-conviction picks (modelProb >= threshold) bypass both the

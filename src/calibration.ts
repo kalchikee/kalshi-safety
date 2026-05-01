@@ -106,3 +106,90 @@ export function computeAllCalibration(stateDir?: string): CalibrationStats[] {
 /** Whether a sport's calibration data is significant enough to draw a
  *  conclusion. Below this we display the numbers but flag as "early". */
 export const CALIBRATION_SIGNIFICANT_SAMPLES = 15;
+
+// ─── Bucket calibration ───────────────────────────────────────────────────────
+//
+// The headline per-sport calibration averages declared vs actual hit rate
+// across all bets. That hides WHERE in the prob range the model fails:
+// a sport at +35pp miscal might be perfectly fine on 65-70% picks and
+// catastrophic on 80-85% picks. The bucketed view splits each sport's
+// settled bets into prob bins and reports per-bucket calibration so we
+// can surgically demote "the 80%+ bets" without killing the whole sport.
+
+export interface CalibrationBucket {
+  bucketLabel: string;        // e.g. "70-75%"
+  bucketLo: number;           // 0.70
+  bucketHi: number;           // 0.75
+  settledBets: number;
+  wins: number;
+  losses: number;
+  avgDeclaredProb: number;
+  actualHitRate: number;
+  miscalibrationPP: number;   // declared - actual; >0 = overconfident
+}
+
+/** Default buckets covering the practical betting range. Anything <0.65
+ *  shouldn't be placed (below the floor) so we start there. */
+const DEFAULT_BUCKETS: Array<{ lo: number; hi: number; label: string }> = [
+  { lo: 0.65, hi: 0.70, label: '65-70%' },
+  { lo: 0.70, hi: 0.75, label: '70-75%' },
+  { lo: 0.75, hi: 0.80, label: '75-80%' },
+  { lo: 0.80, hi: 0.85, label: '80-85%' },
+  { lo: 0.85, hi: 1.01, label: '85%+'  },
+];
+
+/** Bucketed calibration for one sport. Returns one row per bucket with
+ *  at least 1 settled bet. Stop-loss exits are excluded (same logic as
+ *  the headline computeCalibration). */
+export function computeCalibrationByBucket(
+  sport: DryRunSport,
+  stateDir?: string,
+): CalibrationBucket[] {
+  const state = loadPaperState(sport, stateDir);
+  const settled = state.bets.filter((b) => {
+    if (!b.settledAt) return false;
+    if (b.outcome !== 'win' && b.outcome !== 'loss') return false;
+    if (b.outcome === 'loss') {
+      const fullLoss = -(b.priceCents * b.contracts) / 100;
+      const stopped = (b.pnlDollars ?? fullLoss) > fullLoss + 0.005;
+      if (stopped) return false;
+    }
+    return true;
+  });
+
+  const out: CalibrationBucket[] = [];
+  for (const b of DEFAULT_BUCKETS) {
+    const inBucket = settled.filter((bet) => bet.modelProb >= b.lo && bet.modelProb < b.hi);
+    if (inBucket.length === 0) continue;
+    const wins = inBucket.filter((x) => x.outcome === 'win').length;
+    const losses = inBucket.length - wins;
+    const avgDeclared = inBucket.reduce((s, x) => s + x.modelProb, 0) / inBucket.length;
+    const actual = wins / inBucket.length;
+    out.push({
+      bucketLabel: b.label,
+      bucketLo: b.lo,
+      bucketHi: b.hi,
+      settledBets: inBucket.length,
+      wins,
+      losses,
+      avgDeclaredProb: Math.round(avgDeclared * 1000) / 1000,
+      actualHitRate: Math.round(actual * 1000) / 1000,
+      miscalibrationPP: Math.round((avgDeclared - actual) * 1000) / 1000,
+    });
+  }
+  return out;
+}
+
+/** Returns bucketed calibration for every sport that has at least one
+ *  settled bet. Ordered by sport name for stable display. */
+export function computeAllCalibrationByBucket(stateDir?: string): Array<{
+  sport: string;
+  buckets: CalibrationBucket[];
+}> {
+  const out: Array<{ sport: string; buckets: CalibrationBucket[] }> = [];
+  for (const sport of DRY_RUN_SPORTS) {
+    const buckets = computeCalibrationByBucket(sport, stateDir);
+    if (buckets.length > 0) out.push({ sport, buckets });
+  }
+  return out;
+}
