@@ -9,7 +9,7 @@
 // Minimum sample size before adjustment: 50 settled bets.
 // Adjustment step: +0.05 at a time, max +0.15 above default.
 
-import type { DryRunSport } from './allSports.js';
+import { DRY_RUN_SPORTS, type DryRunSport } from './allSports.js';
 import { loadPaperState } from './paperTradeGate.js';
 
 const DEFAULT_FLOOR = parseFloat(process.env.KALSHI_MIN_PROB ?? '0.65');
@@ -33,31 +33,28 @@ export function getPerSportFloor(sport: DryRunSport, stateDir?: string): number 
   return stats.adjustedFloor;
 }
 
+/** Compute per-sport calibration stats including raw measured numbers
+ *  EVEN BELOW the auto-adjustment sample threshold. The floor is only
+ *  lifted when settledBets >= MIN_SAMPLE (50), but the displayed numbers
+ *  are real from the first settlement onward — useful for early detection
+ *  of model miscalibration before 50 bets accumulate. */
 export function computeCalibration(sport: DryRunSport, stateDir?: string): CalibrationStats {
   const state = loadPaperState(sport, stateDir);
   const settled = state.bets.filter((b) => b.settledAt && (b.outcome === 'win' || b.outcome === 'loss'));
 
-  if (settled.length < MIN_SAMPLE) {
-    return {
-      sport,
-      settledBets: settled.length,
-      avgDeclaredProb: 0,
-      actualHitRate: 0,
-      miscalibrationPP: 0,
-      currentFloor: DEFAULT_FLOOR,
-      adjustedFloor: DEFAULT_FLOOR,
-    };
-  }
-
+  // Always compute the raw stats — they're informative at any sample size.
+  // Avoid div-by-zero on a sport with no settlements yet.
   const wins = settled.filter((b) => b.outcome === 'win').length;
-  const actualHitRate = wins / settled.length;
-  const avgDeclaredProb =
-    settled.reduce((s, b) => s + b.modelProb, 0) / settled.length;
+  const actualHitRate = settled.length > 0 ? wins / settled.length : 0;
+  const avgDeclaredProb = settled.length > 0
+    ? settled.reduce((s, b) => s + b.modelProb, 0) / settled.length
+    : 0;
   const miscalibrationPP = avgDeclaredProb - actualHitRate;
 
+  // Floor adjustment is gated on sample size — small-sample noise shouldn't
+  // be enough to lift a sport's floor, only sustained overconfidence.
   let lift = 0;
-  if (miscalibrationPP > OVERCONFIDENCE_THRESHOLD) {
-    // How many STEPs above threshold we are
+  if (settled.length >= MIN_SAMPLE && miscalibrationPP > OVERCONFIDENCE_THRESHOLD) {
     const over = miscalibrationPP - OVERCONFIDENCE_THRESHOLD;
     lift = Math.min(MAX_LIFT, Math.ceil(over / STEP) * STEP);
   }
@@ -73,3 +70,20 @@ export function computeCalibration(sport: DryRunSport, stateDir?: string): Calib
     adjustedFloor,
   };
 }
+
+/** Returns calibration for every sport that has at least one settled bet,
+ *  sorted by miscalibration descending (worst-overconfident first). */
+export function computeAllCalibration(stateDir?: string): CalibrationStats[] {
+  const out: CalibrationStats[] = [];
+  for (const sport of DRY_RUN_SPORTS) {
+    const stats = computeCalibration(sport, stateDir);
+    if (stats.settledBets > 0) out.push(stats);
+  }
+  // Worst-overconfident first (largest positive miscalibration). Negative
+  // miscalibration = model underconfident = good but rare; sorts to bottom.
+  return out.sort((a, b) => b.miscalibrationPP - a.miscalibrationPP);
+}
+
+/** Whether a sport's calibration data is significant enough to draw a
+ *  conclusion. Below this we display the numbers but flag as "early". */
+export const CALIBRATION_SIGNIFICANT_SAMPLES = 15;

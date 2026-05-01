@@ -10,6 +10,7 @@ import { loadLiveState, saveLiveState } from '../liveBets.js';
 import { sendRecap, type RecapBet } from '../discord.js';
 import { sendAggregateDailySummary } from '../../dailySummary.js';
 import { appendEquityPoint, loadEquity, renderSparkline, checkDrawdown } from '../../equityCurve.js';
+import { computeAllCalibration } from '../../calibration.js';
 
 interface ClvStats {
   count: number;
@@ -189,7 +190,18 @@ export async function runRecap(date: string): Promise<void> {
     log('warn', 'drawdown check failed', { err: String(err) });
   }
 
-  await sendRecap(date, bets, mode, equity, clvStats);
+  // Per-sport calibration: declared confidence vs actual hit rate. Surfaced
+  // in the recap embed so we catch model overconfidence early — well before
+  // the auto-floor adjustment kicks in at 50+ settled bets.
+  const calibrationRows = computeAllCalibration().map((c) => ({
+    sport: c.sport,
+    settledBets: c.settledBets,
+    avgDeclaredProb: c.avgDeclaredProb,
+    actualHitRate: c.actualHitRate,
+    miscalibrationPP: c.miscalibrationPP,
+  }));
+
+  await sendRecap(date, bets, mode, equity, clvStats, calibrationRows);
   // Also post the paper-only aggregate summary (30-day dry run W/L across all sports).
   if (PAPER_TRADING) {
     try {

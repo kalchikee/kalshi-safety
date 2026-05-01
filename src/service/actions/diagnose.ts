@@ -5,6 +5,7 @@
 import 'dotenv/config';
 import { loadPaperState } from '../../paperTradeGate.js';
 import { DRY_RUN_SPORTS } from '../../allSports.js';
+import { computeAllCalibration, CALIBRATION_SIGNIFICANT_SAMPLES } from '../../calibration.js';
 
 interface Row {
   sport: string;
@@ -112,5 +113,34 @@ for (const sport of DRY_RUN_SPORTS) {
   const mc = sportClv.length > 0 ? sportClv.reduce((s, v) => s + v, 0) / sportClv.length : 0;
   console.log(
     `${sport.padEnd(8)} ${rows.length.toString().padStart(4)} ${w.toString().padStart(3)} ${l.toString().padStart(3)} ${o.toString().padStart(4)}  $${c.toFixed(2).padStart(6)}  ${p >= 0 ? '+' : ''}$${p.toFixed(2).padStart(5)}  ${r.toFixed(1).padStart(5)}%  ${mc >= 0 ? '+' : ''}${mc.toFixed(2).padStart(5)}pp`,
+  );
+}
+
+// Per-sport calibration table — shows declared confidence vs actual hit
+// rate. The auto-floor adjustment fires at 50+ settled bets; below that
+// we still surface the numbers so miscalibration is visible early.
+console.log('');
+console.log('=== PER-SPORT CALIBRATION ===');
+console.log('sport    n   declared  actual   miscal    floor   verdict');
+const calStats = computeAllCalibration();
+for (const c of calStats) {
+  const declared = `${(c.avgDeclaredProb * 100).toFixed(1)}%`;
+  const actual   = `${(c.actualHitRate * 100).toFixed(1)}%`;
+  const miscal   = `${c.miscalibrationPP >= 0 ? '+' : ''}${(c.miscalibrationPP * 100).toFixed(1)}pp`;
+  const floor    = `${(c.adjustedFloor * 100).toFixed(0)}%`;
+  let verdict: string;
+  if (c.settledBets < CALIBRATION_SIGNIFICANT_SAMPLES) {
+    verdict = `early (need ${CALIBRATION_SIGNIFICANT_SAMPLES}+ bets)`;
+  } else if (c.miscalibrationPP > 0.10) {
+    verdict = 'OVERCONFIDENT (model misleads sizing)';
+  } else if (c.miscalibrationPP > 0.05) {
+    verdict = 'mildly overconfident';
+  } else if (c.miscalibrationPP < -0.05) {
+    verdict = 'underconfident (rare; could size up)';
+  } else {
+    verdict = 'well-calibrated';
+  }
+  console.log(
+    `${c.sport.padEnd(8)} ${c.settledBets.toString().padStart(3)}   ${declared.padStart(7)}  ${actual.padStart(6)}  ${miscal.padStart(7)}   ${floor.padStart(4)}   ${verdict}`,
   );
 }

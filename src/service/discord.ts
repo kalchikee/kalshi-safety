@@ -160,12 +160,21 @@ export interface ClvSnapshot {
   negativeCount: number;    // bets that closed worse
 }
 
+export interface CalibrationRow {
+  sport: string;
+  settledBets: number;
+  avgDeclaredProb: number;
+  actualHitRate: number;
+  miscalibrationPP: number;
+}
+
 export async function sendRecap(
   date: string,
   bets: RecapBet[],
   mode: 'paper' | 'live',
   equity?: EquitySnapshot,
   clv?: ClvSnapshot,
+  calibration?: CalibrationRow[],
 ): Promise<boolean> {
   const wins = bets.filter((b) => b.outcome === 'win').length;
   const losses = bets.filter((b) => b.outcome === 'loss' || b.outcome === 'stopped').length;
@@ -194,6 +203,25 @@ export async function sendRecap(
     fields.push({
       name: `🎯 Closing-line value — ${clv.count} bets`,
       value: `Avg CLV: **${sign}${clv.meanPp.toFixed(2)} pp** · ${clv.positiveCount}W ${clv.negativeCount}L (${pct}% beat the close)\n_Positive long-run CLV = real edge over the market._`,
+      inline: false,
+    });
+  }
+  if (calibration && calibration.length > 0) {
+    // One line per sport with at least 1 settled bet, worst overconfidence first
+    const lines = calibration.slice(0, 8).map((c) => {
+      const dec = `${(c.avgDeclaredProb * 100).toFixed(0)}%`;
+      const act = `${(c.actualHitRate * 100).toFixed(0)}%`;
+      const miscal = `${c.miscalibrationPP >= 0 ? '+' : ''}${(c.miscalibrationPP * 100).toFixed(0)}pp`;
+      const flag = c.miscalibrationPP > 0.10 ? '🔴' :
+                   c.miscalibrationPP > 0.05 ? '🟡' :
+                   c.miscalibrationPP < -0.05 ? '🟢' :
+                   '⚪';
+      const samples = c.settledBets < 15 ? ` _(only ${c.settledBets} settled — early)_` : '';
+      return `${flag} **${c.sport}** — declared ${dec} · actual ${act} · miscal **${miscal}**${samples}`;
+    }).join('\n');
+    fields.push({
+      name: '🎯 Per-sport calibration',
+      value: lines.slice(0, 1000),
       inline: false,
     });
   }
