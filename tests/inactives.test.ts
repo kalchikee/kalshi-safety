@@ -41,6 +41,21 @@ describe('mlbTeamsFromTicker', () => {
     // "ZZZBOS" — ZZZ is not a real team
     expect(mlbTeamsFromTicker('KXMLBGAME-26APR272210ZZZBOS-BOS')).toBeNull();
   });
+
+  it('regression: AZ ticker normalizes to ARI', () => {
+    // Real ticker observed 2026-05-03: KXMLBGAME-26MAY031420AZCHC-CHC
+    // Pre-fix the strict MLB_KALSHI_CODES set (which only had ARI) made
+    // the parser silently reject AZ tickers, so inactives never even
+    // attempted a schedule lookup for those games. Now AZ is recognized
+    // as an alias and normalized to ARI for downstream lookup.
+    expect(mlbTeamsFromTicker('KXMLBGAME-26MAY031420AZCHC-CHC'))
+      .toEqual({ away: 'ARI', home: 'CHC' });
+  });
+
+  it('regression: ATH ticker normalizes to OAK', () => {
+    expect(mlbTeamsFromTicker('KXMLBGAME-26MAY031340CLEATH-CLE'))
+      .toEqual({ away: 'CLE', home: 'OAK' });
+  });
 });
 
 describe('mlbIsoDateFromTicker', () => {

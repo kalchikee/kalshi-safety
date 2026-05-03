@@ -65,23 +65,38 @@ export function mlbIsoDateFromTicker(ticker: string): string | null {
   return `20${yy}-${mon}-${dd}`;
 }
 
+// MLB Stats API and Kalshi mostly agree on team codes, but two diverge:
+//   AZ (Stats / sometimes Kalshi)  ↔ ARI (canonical)
+//   ATH (Stats post-relocation)    ↔ OAK (canonical Kalshi)
+// We use a single set of aliases (declared below near MLB_KALSHI_CODES)
+// to normalize whichever variant we see down to one canonical form.
+
 /** Pull MLB schedule for a given date and return all games keyed by
  *  abbreviated matchup ("PHI@ATL" → MLBGame). Throws on network / parse
  *  failure — DO NOT swallow, because an empty Map is semantically
  *  "the API responded but the game isn't there" (worth alerting on).
  *  An exception means "the API was unreachable" (don't alert; log
- *  warn at the caller). These are different events. */
+ *  warn at the caller). These are different events.
+ *
+ *  IMPORTANT: hydrates BOTH `probablePitcher` AND `team`. Without the
+ *  `team` hydrate, the team object lacks the `abbreviation` field and
+ *  every game falls through with `${undefined}@${undefined}` keys,
+ *  making the map useless for lookup — every real game then triggers
+ *  a false "unknown_status" alert on every open bet. */
 async function fetchMlbSchedule(isoDate: string): Promise<Map<string, MLBGame>> {
-  const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${isoDate}&hydrate=probablePitcher`;
+  const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${isoDate}&hydrate=probablePitcher,team`;
   const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
   if (!r.ok) throw new Error(`MLB schedule HTTP ${r.status}`);
   const d = (await r.json()) as { dates?: Array<{ games?: MLBGame[] }> };
   const out = new Map<string, MLBGame>();
   for (const day of d.dates ?? []) {
     for (const g of day.games ?? []) {
-      const home = g.teams?.home?.team?.abbreviation;
-      const away = g.teams?.away?.team?.abbreviation;
-      if (!home || !away) continue;
+      const homeRaw = g.teams?.home?.team?.abbreviation;
+      const awayRaw = g.teams?.away?.team?.abbreviation;
+      if (!homeRaw || !awayRaw) continue;
+      // Translate to Kalshi codes so lookup matches our ticker-derived keys
+      const home = normalizeKalshiCode(homeRaw);
+      const away = normalizeKalshiCode(awayRaw);
       out.set(`${away}@${home}`, g);
     }
   }
@@ -96,7 +111,25 @@ const MLB_KALSHI_CODES = new Set([
   'ARI', 'ATL', 'BAL', 'BOS', 'CHC', 'CWS', 'CIN', 'CLE', 'COL', 'DET',
   'HOU', 'KC',  'LAA', 'LAD', 'MIA', 'MIL', 'MIN', 'NYM', 'NYY', 'OAK',
   'PHI', 'PIT', 'SD',  'SF',  'SEA', 'STL', 'TB',  'TEX', 'TOR', 'WSH',
+  // Variants that appear in real Kalshi tickers (alongside the canonicals
+  // above). Today's ARI@CHC game was listed as KXMLBGAME-...AZCHC-CHC, so
+  // strict validation against the canonical-only set silently rejected
+  // the ticker and the inactives checker never ran on it.
+  'AZ',   // alias for ARI (also matches MLB Stats's modern abbreviation)
+  'ATH',  // alias for OAK (Athletics post-relocation; Stats updated)
 ]);
+
+// Bidirectional alias map. When a ticker uses an alias (AZ, ATH) we
+// normalize to the canonical (ARI, OAK) so downstream lookups work
+// consistently regardless of which variant Kalshi posts on a given day.
+const KALSHI_CODE_ALIASES: Record<string, string> = {
+  AZ:  'ARI',
+  ATH: 'OAK',
+};
+
+function normalizeKalshiCode(code: string): string {
+  return KALSHI_CODE_ALIASES[code] ?? code;
+}
 
 /** Exported for direct testing. */
 export const _testHooks = { MLB_KALSHI_CODES };
@@ -120,7 +153,9 @@ export function mlbTeamsFromTicker(ticker: string): { away: string; home: string
     const away = teamPair.slice(0, awayLen);
     const home = teamPair.slice(awayLen);
     if (MLB_KALSHI_CODES.has(away) && MLB_KALSHI_CODES.has(home)) {
-      return { away, home };
+      // Normalize aliases (AZ → ARI, ATH → OAK) so downstream schedule
+      // lookups always use a single canonical code per team.
+      return { away: normalizeKalshiCode(away), home: normalizeKalshiCode(home) };
     }
   }
   return null;

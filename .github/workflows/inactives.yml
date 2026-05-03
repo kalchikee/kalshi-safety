@@ -53,3 +53,16 @@ jobs:
         env:
           KALSHI_SAFETY_DISCORD_URL: ${{ secrets.KALSHI_SAFETY_DISCORD_URL }}
         run: node --loader ts-node/esm src/service/actions/scan-inactives.ts
+
+      - name: Save safety-state (preserves dedup written this run)
+        # Without this, the dedup file safety-state/inactives-alerted.json
+        # written by the scanner is discarded at job exit, so the next
+        # run 30 min later starts with a stale cache and re-fires every
+        # alert that's still active. Cache key is unique per run; bet /
+        # recap / monitor jobs use restore-keys with the `kalshi-safety-
+        # state-` prefix and pick up whichever job last saved.
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: safety-state
+          key: kalshi-safety-state-${{ steps.date.outputs.date }}-inactives-${{ github.run_id }}
