@@ -1,5 +1,5 @@
 import { getDailySummary, getDryRunDuration, loadPaperState, type DailySummary } from './paperTradeGate.js';
-import { sendSafetyAlert } from './alerts.js';
+import { sendPaperEvent } from './alerts.js';
 
 /** Returns yesterday's date in YYYY-MM-DD UTC format. */
 export function yesterdayUTC(now = new Date()): string {
@@ -64,7 +64,7 @@ export async function sendDailyDryRunSummary(
     { name: 'Total paper bets', value: String(state.totalBets), inline: true },
   ];
 
-  return sendSafetyAlert({
+  return sendPaperEvent({
     title: `Kalshi Picks daily summary — ${sport} — ${date}`,
     description: `${modeLine}\n\nAll bets shown below are **paper / dry-run**. No real money is at risk until the 30-day paper period completes and live mode is explicitly activated.`,
     color: pnlColor,
@@ -112,7 +112,7 @@ export async function sendAggregateDailySummary(
   }
 
   if (perSport.length === 0) {
-    return sendSafetyAlert({
+    return sendPaperEvent({
       title: `Kalshi Picks aggregate — ${date}`,
       description: '🧪 Dry run in progress. No sports have placed paper bets yet.',
       color: 0x95A5A6,
@@ -132,7 +132,7 @@ export async function sendAggregateDailySummary(
       return `**${s.sport}**: ${s.wins}–${s.losses} · ${p}`;
     });
 
-  return sendSafetyAlert({
+  return sendPaperEvent({
     title: `Kalshi Picks — all sports dry-run summary — ${date}`,
     description: `🧪 **Paper / dry-run mode** — no real money at risk.\n\nCombined results across ${perSport.length} active sport(s).`,
     color,

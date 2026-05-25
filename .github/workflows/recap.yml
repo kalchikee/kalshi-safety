@@ -46,6 +46,7 @@ jobs:
           KALSHI_API_KEY_ID: ${{ secrets.KALSHI_API_KEY_ID }}
           KALSHI_PRIVATE_KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
           KALSHI_SAFETY_DISCORD_URL: ${{ secrets.KALSHI_SAFETY_DISCORD_URL }}
+          KALSHI_PAPER_DISCORD_URL: ${{ secrets.KALSHI_PAPER_DISCORD_URL }}
           KALSHI_PAPER_TRADING: 'true'
           KALSHI_MIN_BALANCE: '5'
         run: node --loader ts-node/esm src/service/actions/recap.ts ${{ github.event.inputs.date || steps.date.outputs.date }}

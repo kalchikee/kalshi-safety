@@ -3,7 +3,10 @@
 //  - stop-loss triggered (posted by monitor)
 //  - daily recap (posted by 4 AM recap job)
 //
-// All posted to KALSHI_SAFETY_DISCORD_URL.
+// Paper-trading content posts to KALSHI_PAPER_DISCORD_URL when set, so the
+// trade flow lives in its own channel and safety alerts stay separate. Falls
+// back to the safety webhook so behavior is unchanged if the paper URL is
+// unset.
 
 import fetch from 'node-fetch';
 
@@ -14,7 +17,9 @@ interface Embed {
 }
 
 async function post(embed: Embed): Promise<boolean> {
-  const url = process.env.KALSHI_SAFETY_DISCORD_URL || process.env.DISCORD_WEBHOOK_URL;
+  const url = process.env.KALSHI_PAPER_DISCORD_URL
+    || process.env.KALSHI_SAFETY_DISCORD_URL
+    || process.env.DISCORD_WEBHOOK_URL;
   if (!url) return false;
   try {
     const r = await fetch(url, {

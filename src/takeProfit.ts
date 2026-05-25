@@ -4,7 +4,7 @@
 import type { PaperBetRecord } from './paperTradeGate.js';
 import { loadPaperState, settlePaperBet } from './paperTradeGate.js';
 import { HARD_LIMITS } from './config.js';
-import { sendSafetyAlert } from './alerts.js';
+import { sendPaperEvent } from './alerts.js';
 
 export interface TakeProfitCheckResult {
   triggered: boolean;
@@ -67,7 +67,7 @@ export async function triggerPaperTakeProfit(
   const settled = settlePaperBet(sport, ticker, 'win', dir, partialPnl);
 
   if (settled) {
-    await sendSafetyAlert({
+    await sendPaperEvent({
       title: 'Paper take-profit triggered',
       description: `Locked gains on ${ticker} — ${check.reason}`,
       color: 0x2ecc71,

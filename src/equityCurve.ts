@@ -7,7 +7,7 @@ import { atomicWriteFile } from './atomic.js';
 import { DRY_RUN_SPORTS } from './allSports.js';
 import { loadPaperState } from './paperTradeGate.js';
 import { HARD_LIMITS } from './config.js';
-import { sendSafetyAlert } from './alerts.js';
+import { sendPaperEvent } from './alerts.js';
 
 interface EquityPoint {
   date: string;
@@ -50,7 +50,7 @@ export async function checkDrawdown(series: EquitySeries): Promise<boolean> {
   if (peak <= 0) return false;  // haven't been in profit yet
   const drawdown = (peak - latest) / peak;
   if (drawdown < HARD_LIMITS.HARD_DRAWDOWN_ALERT_PCT) return false;
-  await sendSafetyAlert({
+  await sendPaperEvent({
     title: `Drawdown alert: ${(drawdown * 100).toFixed(1)}% below peak`,
     description: `Paper equity has fallen from peak $${peak.toFixed(2)} to $${latest.toFixed(2)}.`,
     color: 0xE67E22,

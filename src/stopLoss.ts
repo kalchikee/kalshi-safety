@@ -1,7 +1,7 @@
 import type { PaperBetRecord } from './paperTradeGate.js';
 import { loadPaperState, settlePaperBet } from './paperTradeGate.js';
 import { HARD_LIMITS } from './config.js';
-import { sendSafetyAlert } from './alerts.js';
+import { sendPaperEvent } from './alerts.js';
 
 export interface StopLossCheckResult {
   triggered: boolean;
@@ -87,7 +87,7 @@ export async function triggerPaperStopLoss(
   const settled = settlePaperBet(sport, ticker, 'loss', dir, partialPnl);
 
   if (settled) {
-    await sendSafetyAlert({
+    await sendPaperEvent({
       title: 'Paper stop-loss triggered',
       description: `Auto-exit on ${ticker} — ${check.reason}`,
       color: 0xE67E22,

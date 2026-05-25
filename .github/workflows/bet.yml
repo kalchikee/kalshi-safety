@@ -74,6 +74,7 @@ jobs:
           KALSHI_API_KEY_ID: ${{ secrets.KALSHI_API_KEY_ID }}
           KALSHI_PRIVATE_KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
           KALSHI_SAFETY_DISCORD_URL: ${{ secrets.KALSHI_SAFETY_DISCORD_URL }}
+          KALSHI_PAPER_DISCORD_URL: ${{ secrets.KALSHI_PAPER_DISCORD_URL }}
           KALSHI_PAPER_TRADING: 'true'
           KALSHI_MIN_PROB: '0.65'
           KALSHI_MAX_BET_DOLLARS: '10'
