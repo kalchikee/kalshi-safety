@@ -1,0 +1,38 @@
+name: Heartbeat (sport-repo freshness check)
+
+# Runs once a day and alerts to the safety webhook if any in-season
+# sport's predictions/ folder hasn't been updated in 3+ days. Designed
+# to catch silent data-source failures (UFCStats JS challenge, Jolpica
+# 504s, empty API keys) that historically went 2-3 weeks before the
+# user noticed empty Discord embeds.
+
+on:
+  schedule:
+    - cron: '0 14 * * *'   # 14:00 UTC = 9 AM ET, after morning workflows finish
+  workflow_dispatch:
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run heartbeat
+        env:
+          # GITHUB_TOKEN is auto-injected and lets us avoid the unauthenticated
+          # GitHub API rate limit (60/hr → 5000/hr).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KALSHI_SAFETY_DISCORD_URL: ${{ secrets.KALSHI_SAFETY_DISCORD_URL }}
+        run: node --loader ts-node/esm src/service/actions/heartbeat.ts
