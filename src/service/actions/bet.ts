@@ -28,7 +28,7 @@ import {
   checkVegasAgreement, checkWeeklyExposure, checkFeeDeathZone,
 } from '../../caps.js';
 import { loadConfig } from '../../config.js';
-import { getPerSportFloor } from '../../calibration.js';
+import { getPerSportFloor, getDisallowedBucketReason } from '../../calibration.js';
 import { isLiveAllowed } from '../../liveActivation.js';
 import { evaluateAndSuspend, isSuspended } from '../../suspension.js';
 import { fetchEspnScoreboard, espnProbForPick, type EspnScoreboard } from '../external/espn.js';
@@ -282,6 +282,23 @@ export async function runBetAction(date: string): Promise<void> {
           sport: file.sport,
           matchup: `${pick.away} @ ${pick.home}`,
           reason: `modelProb ${(pick.modelProb * 100).toFixed(1)}% < ${(sportFloor * 100).toFixed(0)}% ${sportFloor > DEFAULT_MIN_PROB ? 'calibrated' : 'default'} floor`,
+        });
+        continue;
+      }
+
+      // Per-bucket disallow filter — separate from the single-threshold
+      // floor above. WNBA's 80%+ bucket and pre-refit MLB's 70-80% were
+      // both hitting near 50% while declared 80%+; the floor can't
+      // selectively block individual buckets, but this can. Only kicks in
+      // for buckets with ≥15 settled bets and >10pp overconfidence.
+      const bucketReason = getDisallowedBucketReason(
+        file.sport as DryRunSport, pick.modelProb,
+      );
+      if (bucketReason) {
+        skipped.push({
+          sport: file.sport,
+          matchup: `${pick.away} @ ${pick.home}`,
+          reason: bucketReason,
         });
         continue;
       }

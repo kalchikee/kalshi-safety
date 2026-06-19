@@ -128,9 +128,13 @@ export interface CalibrationBucket {
   miscalibrationPP: number;   // declared - actual; >0 = overconfident
 }
 
-/** Default buckets covering the practical betting range. Anything <0.65
- *  shouldn't be placed (below the floor) so we start there. */
+/** Default buckets covering the practical betting range. Starts at 0.50
+ *  so the bucket filter can act on every pick that clears the per-sport
+ *  floor (which may be lower than 0.65 for well-calibrated sports). */
 const DEFAULT_BUCKETS: Array<{ lo: number; hi: number; label: string }> = [
+  { lo: 0.50, hi: 0.55, label: '50-55%' },
+  { lo: 0.55, hi: 0.60, label: '55-60%' },
+  { lo: 0.60, hi: 0.65, label: '60-65%' },
   { lo: 0.65, hi: 0.70, label: '65-70%' },
   { lo: 0.70, hi: 0.75, label: '70-75%' },
   { lo: 0.75, hi: 0.80, label: '75-80%' },
@@ -192,4 +196,44 @@ export function computeAllCalibrationByBucket(stateDir?: string): Array<{
     if (buckets.length > 0) out.push({ sport, buckets });
   }
   return out;
+}
+
+// ─── Per-bucket disallow filter ──────────────────────────────────────────
+//
+// Even when a sport's headline calibration is OK, individual buckets may
+// be badly broken. WNBA hits 33% on its 80%+ tier while overall season
+// accuracy is 67% — the headline number masks the catastrophic top tier.
+// Similarly MLB pre-refit had a 70-80% bucket at 55% actual while 50-60%
+// was perfectly calibrated. The per-sport floor mechanism can't express
+// "allow 50-60% but skip 70-80%" — it's a single threshold. This filter
+// rejects picks that fall in a bucket with sustained overconfidence AND
+// enough sample size to trust the signal.
+
+const BUCKET_DISALLOW_MIN_SAMPLES = 15;
+const BUCKET_DISALLOW_MISCAL_PP = 0.10;
+
+/** Returns a skip-reason string when the pick falls in a disallowed
+ *  bucket, or null when the pick is allowed. A bucket is disallowed
+ *  when it has accumulated at least BUCKET_DISALLOW_MIN_SAMPLES settled
+ *  bets AND the model is overconfident there by more than
+ *  BUCKET_DISALLOW_MISCAL_PP percentage points. */
+export function getDisallowedBucketReason(
+  sport: DryRunSport,
+  modelProb: number,
+  stateDir?: string,
+): string | null {
+  const buckets = computeCalibrationByBucket(sport, stateDir);
+  for (const b of buckets) {
+    if (modelProb < b.bucketLo || modelProb >= b.bucketHi) continue;
+    if (b.settledBets < BUCKET_DISALLOW_MIN_SAMPLES) return null;
+    if (b.miscalibrationPP <= BUCKET_DISALLOW_MISCAL_PP) return null;
+    const actualPct = (b.actualHitRate * 100).toFixed(0);
+    const declaredPct = (b.avgDeclaredProb * 100).toFixed(0);
+    return (
+      `${sport} ${b.bucketLabel} bucket disabled (${b.wins}/${b.settledBets} = ` +
+      `${actualPct}%, declared ${declaredPct}% — overconfident by ` +
+      `${(b.miscalibrationPP * 100).toFixed(0)}pp)`
+    );
+  }
+  return null;
 }
